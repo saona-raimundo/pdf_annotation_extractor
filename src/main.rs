@@ -85,7 +85,7 @@ struct Args {
 
     /// Horizontal gap that counts as a word break, as a fraction of font size.
     /// Typeset maths carries no space glyphs, so spaces are inferred from gaps.
-    #[arg(long, default_value_t = 0.25)]
+    #[arg(long, default_value_t = 0.25, hide_short_help = true)]
     space_gap: f32,
 
     /// Glyph coordinate convention. `auto` infers it from the document.
@@ -118,11 +118,13 @@ struct Args {
     #[arg(long)]
     keep_empty: bool,
 
-    /// Extra identifiers beside the page number: colour, kind, author, date
+    /// Extra identifiers beside the page number: colour, kind, author, date.
+    /// (Markdown output only)
     #[arg(long, value_delimiter = ',', value_name = "LIST")]
     show: Vec<ShowArg>,
 
-    /// Number the items, for citing a remark as "page 3, note 2"
+    /// Number the items, for citing a remark as "page 3, note 2".
+    /// (Markdown output only)
     #[arg(long, value_enum, default_value_t = NumberArg::None)]
     number: NumberArg,
 }
@@ -576,13 +578,17 @@ fn choose_text(raw: RawString, fallback: Option<&str>) -> Option<String> {
 fn decode_pdf_string(bytes: &[u8]) -> String {
     if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
         let units: Vec<u16> = rest
-            .chunks_exact(2)
-            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_be_bytes(*c))
             .collect();
         String::from_utf16_lossy(&units)
     } else if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
         let units: Vec<u16> = rest
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
         String::from_utf16_lossy(&units)
@@ -976,7 +982,7 @@ fn section_titles(doc: &PdfDocument, page_count: usize) -> HashMap<usize, String
         return map;
     }
     for page in 0..page_count {
-        if let Some((_, title)) = flat.iter().filter(|(p, _)| *p <= page).next_back() {
+        if let Some((_, title)) = flat.iter().rfind(|(p, _)| *p <= page) {
             map.insert(page, title.clone());
         }
     }
