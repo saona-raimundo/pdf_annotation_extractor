@@ -1,0 +1,19 @@
+[package]
+name = "pdf_annotation_extractor"
+version = "0.1.0"
+edition = "2024"
+authors = ["Raimundo Saona <raimundo.saona@gmail.com>"]
+license = "MIT OR UNLICENSE"
+readme = "README.md"
+repository = "https://github.com/saona-raimundo/pdf_annotation_extractor"
+documentation = "https://docs.rs/pdf_annotation_extractor"
+description = "Extract highlights and comments from an annotated PDF"
+keywords = ["pdf", "annotations", "highlights", "markdown", "review"]
+categories = ["command-line-utilities", "text-processing"]
+
+[dependencies]
+pdf_oxide = "0.3.77"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jiff = "0.2"

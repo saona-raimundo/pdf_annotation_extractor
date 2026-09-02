@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "note": "An inventory of items a producer's file fails to record, per PDF. This does NOT change what the correct answer is — expected.json remains the single statement of that, unmodified. It records that a given input does not contain a usable recording of an item, so the harness does not assert against data that is not there. Every entry needs evidence that can be checked against the file itself.",
+  "producers": {
+    "base-okular-26.04.3.pdf": {
+      "E8A": {
+        "reason": "Okular cannot highlight on a /Rotate 90 page, so this annotation is absent from the file. An earlier attempt did save one, but with quads in the wrong coordinate frame (two of eleven outside the annotated line: x 295.07..301.68 y 62.36..713.62, 651pt tall, and x 295.07..300.21 y 53.15..62.36 over the page number). That file was discarded rather than kept as a fixture.",
+        "evidence": "Page 3 of this file carries zero markup annotations: /Annots contains no /Highlight. Verify with: python3 -c \"import pikepdf; print([str(a.get('/Subtype')) for a in pikepdf.open(FILE).pages[2].get('/Annots') or []])\"",
+        "escalate": "Okular"
+      }
+    }
+  }
+}

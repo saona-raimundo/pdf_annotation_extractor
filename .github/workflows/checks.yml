@@ -1,0 +1,33 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      # Runs the unit tests in main.rs, markdown.rs and date.rs, and the
+      # fixture tests in tests/fixtures.rs against the committed producer PDFs.
+      - run: cargo test
+
+  # The declared rust-version is a promise; check it holds rather than
+  # discovering otherwise from a bug report.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - run: cargo check --all-targets

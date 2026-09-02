@@ -1,0 +1,218 @@
+{
+  "fixture": "base",
+  "source": "base.tex",
+  "schema": 3,
+  "provenance": "covered_text and comment are what base.tex says the annotation covers, checked against pdfannots 0.5 output on base-papers-50.2.pdf where that agreed. E8A was taken from base.tex alone.",
+  "matching": "Match by the [[Exx]] sentinel in covered_text. E5C has no covered text and is matched by page, subtype and comment. An extracted text containing a sentinel other than its own fails regardless of the rest of the string.",
+  "author_policy": "author is null for every item except E5B. Producers commonly override the author with the system user name, so null means 'any value'.",
+  "pages_without_annotations": [
+    5
+  ],
+  "annotations": [
+    {
+      "id": "E1A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the predicted tracking error [[E1A]]",
+      "comment": "Plain ASCII comment.",
+      "author": null,
+      "notes": "Baseline single-quad case."
+    },
+    {
+      "id": "E1B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "universe [[E1B]]",
+      "comment": null,
+      "author": null,
+      "notes": "No comment: must appear as a bare highlight, not be dropped."
+    },
+    {
+      "id": "E1C",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "convex programming [[E1C]]",
+      "comment": "Does the period come too?",
+      "author": null,
+      "notes": "AMBIGUITY: trailing punctuation. Papers' quad stops before the full stop and pdfannots excludes it. Variant permitted for extractors with wider horizontal tolerance."
+    },
+    {
+      "id": "E2A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "predicted tracking error, predicted beta, style factor active exposure, issuer concentration and sector group exposures, which is counter-productive when the panel is small [[E2A]]",
+      "comment": "Five lines, one hyphenated break.",
+      "author": null,
+      "notes": "Five quads in one annotation. AMBIGUITY: de-hyphenation. Canonical form joins 'issuer con-' + 'centration'; the variant is the --keep-hyphens form."
+    },
+    {
+      "id": "E2B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a directly adjacent passage sitting one line below the previous one so that any vertical bleed between them is detected [[E2B]]",
+      "comment": "Adjacent to E2A on purpose.",
+      "author": null,
+      "notes": "Directly below E2A. If either text contains the other's sentinel, the vertical band is wrong."
+    },
+    {
+      "id": "E3A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the location µ, scale s and degrees of freedom ν [[E3A]]",
+      "comment": "Are the spaces around the maths recovered?",
+      "author": null,
+      "notes": "AMBIGUITY: spaces around inline maths. The PDF contains no space glyphs there; canonical form has them, variant is the raw character stream. Note mu is U+00B5 MICRO SIGN, not U+03BC - that is what Latin Modern's ToUnicode emits."
+    },
+    {
+      "id": "E3B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "Kvalid [[E3B]]",
+      "comment": "Subscript at the selection edge.",
+      "author": null,
+      "notes": "Subscript must stay on one line. 'K valid' means the line grouping tolerance split the subscript off."
+    },
+    {
+      "id": "E3C",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "Pn i=1 wiRi ≤ VaRα [[E3C]]",
+      "comment": "Tall glyphs, centre outside the band.",
+      "author": null,
+      "notes": "A summation with stacked limits: the upper limit, the operator and its main line, and the lower limit occupy three baselines, so no linearisation is canonical. Compared as a character multiset. The summation glyph maps to 'P' through Latin Modern's ToUnicode and the limits to 'n' and 'i=1'; those artifacts belong to the base PDF, not the extractor. Also exercises large-operator inclusion, since the glyph is far taller than the line band.",
+      "order": "undefined"
+    },
+    {
+      "id": "E4A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "short-term fixed income instruments [[E4A]]",
+      "comment": "No space inside \"fixed\".",
+      "author": null,
+      "notes": "'fixed' uses a single fi ligature glyph. 'fi xed' means gaps were measured from bbox width rather than the cursor advance."
+    },
+    {
+      "id": "E4B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "efficient offline workflow [[E4B]]",
+      "comment": "ffi, ffl and fl in one selection.",
+      "author": null,
+      "notes": "Three further ligatures: ffi, ffl, fl."
+    },
+    {
+      "id": "E5A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "encoded comment [[E5A]]",
+      "comment": "Café, naïve, Größe, Ω, 漢字 — all of this must survive.",
+      "author": null,
+      "notes": "Comment is UTF-16BE with a BOM. Accents, Greek, CJK and an em dash must all round-trip."
+    },
+    {
+      "id": "E5B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "authored markup [[E5B]]",
+      "comment": "Author name carries accents.",
+      "author": "Renée Léa",
+      "notes": "The only item with a required author. Every other item's author is producer-dependent."
+    },
+    {
+      "id": "E5C",
+      "page": 1,
+      "subtype": "Text",
+      "status": "expected",
+      "covered_text": null,
+      "comment": "No quads on this one; comment only.\n\nSecond paragraph of the same comment.",
+      "author": null,
+      "notes": "Sticky note: no /QuadPoints, so covered_text must be null rather than empty string. Two paragraphs."
+    },
+    {
+      "id": "E6A",
+      "page": 2,
+      "subtype": "Underline",
+      "status": "expected",
+      "covered_text": "An underlined phrase [[E6A]]",
+      "comment": "Underline.",
+      "author": null,
+      "notes": "Classified as a nit."
+    },
+    {
+      "id": "E6B",
+      "page": 2,
+      "subtype": "StrikeOut",
+      "status": "expected",
+      "covered_text": "a struck out phrase [[E6B]]",
+      "comment": "StrikeOut.",
+      "author": null,
+      "notes": "Classified as a nit."
+    },
+    {
+      "id": "E6C",
+      "page": 2,
+      "subtype": "Squiggly",
+      "status": "expected",
+      "covered_text": "a squiggly phrase [[E6C]]",
+      "comment": "Squiggly.",
+      "author": null,
+      "notes": "Classified as a nit. Not all producers can emit Squiggly."
+    },
+    {
+      "id": "E7A",
+      "page": 2,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a highlight confined to the left column [[E7A]]",
+      "comment": "Must not pull in the right column.",
+      "author": null,
+      "notes": "Must not contain [[E7B]]."
+    },
+    {
+      "id": "E7B",
+      "page": 2,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a highlight confined to the right column [[E7B]]",
+      "comment": "Must not pull in the left column.",
+      "author": null,
+      "notes": "Must not contain [[E7A]]."
+    },
+    {
+      "id": "E8A",
+      "page": 3,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "A highlight sits on a rotated page [[E8A]]",
+      "comment": "Rotated page.",
+      "author": null,
+      "notes": "Page has /Rotate 90. Not currently recovered by our extractor, nor by pdfannots. Tracked as a defect, not excused: see PRODUCERS.md for the per-glyph quad behaviour that compounds it."
+    },
+    {
+      "id": "E9A",
+      "page": 4,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "A cropped page highlight [[E9A]]",
+      "comment": "CropBox is inset by 20pt.",
+      "author": null,
+      "notes": "CropBox inset 20pt from MediaBox. Compare with E1A: passing E1A but failing E9A means the wrong page box is in use."
+    }
+  ],
+  "comparison": "Compared exactly. There are no per-producer expectation files, no overrides and no variant lists: this file states what the document means, so a producer whose file cannot yield it is a finding to document, and a shortfall in our extractor is a bug to fix. Neither is an expectation to adjust.",
+  "extractor_options": "Canonical values assume default options. --keep-hyphens changes E2A and --space-gap changes E3A; those are option axes, not producer differences.",
+  "failure_policy": "A failing item is a tracked defect, in our extractor or in the producer. See PRODUCERS.md for observed producer behaviour. Nothing there relaxes this file.",
+  "order_policy": "Items default to reading order and are compared exactly. An item marked order='undefined' has no canonical linearisation — stacked mathematical limits sit at three different baselines with no single correct sequence — so it is compared as a multiset of non-whitespace characters instead. That is a weaker assertion, but a precise one: nothing covered may be missing and nothing uncovered may appear. The boundaries of the selection are still fully asserted; only the sequence is not."
+}

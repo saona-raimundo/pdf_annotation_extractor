@@ -1,0 +1,135 @@
+% =====================================================================
+% Annotation-extraction fixture: BASE DOCUMENT
+%
+%   pdflatex base.tex        (one run is enough; no aux dependencies)
+%
+% Contains NO annotations. Annotate the resulting base.pdf by hand in
+% each program you want to test, following ANNOTATIONS.txt, and save
+% each result as base-<tool>.pdf.
+%
+% Deliberate choices:
+%   * no hyperref -- it would add /Link annotations and pollute /Annots
+%   * uncompressed -- so /Annots can be inspected with grep
+%   * glyphtounicode -- so ligature glyphs map back to "fi"/"ffi"
+%   * every target phrase ends with a unique sentinel [[Exx]] so that a
+%     test can assert the extracted text contains its own sentinel and
+%     no other; bleed from a neighbouring line then fails mechanically
+% =====================================================================
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{multicol}
+\usepackage[margin=3cm]{geometry}
+
+\input glyphtounicode
+\pdfgentounicode=1
+
+\pdfcompresslevel=0
+\pdfobjcompresslevel=0
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+\section*{E1 --- single line}
+
+This paragraph exists so that a highlight can sit in the middle of a
+line of ordinary text. Here is the predicted tracking error [[E1A]] and
+the sentence continues afterwards so the quad has text on both sides of
+it.
+
+A second case with no comment at all: universe [[E1B]] appears bare.
+
+Expected suffering ends here with convex programming [[E1C]]. The period
+after the sentinel is deliberate.
+
+\section*{E2 --- wrapping across lines}
+
+\parbox{0.46\textwidth}{%
+predicted tracking error, predicted beta, style factor active exposure,
+issuer concentration and sector group exposures, which is
+counter-productive when the panel is small [[E2A]]%
+}
+
+\parbox{0.46\textwidth}{%
+a directly adjacent passage sitting one line below the previous one so
+that any vertical bleed between them is detected [[E2B]]%
+}
+
+\section*{E3 --- inline mathematics}
+
+Following McNeil, Frey and Embrechts, the location $\mu$, scale $s$ and
+degrees of freedom $\nu$ [[E3A]] are estimated jointly.
+
+The retained set is $K_{\text{valid}}$ [[E3B]] after filtering.
+
+The constraint $\sum_{i=1}^{n} w_i R_i \le \mathrm{VaR}_\alpha$ [[E3C]]
+binds at the optimum.
+
+\section*{E4 --- ligatures}
+
+The portfolios hold short-term fixed income instruments [[E4A]]
+alongside equities.
+
+An efficient offline workflow [[E4B]] is assumed throughout.
+
+\section*{E5 --- string encoding}
+
+The comment attached here carries accents and a non-Latin script:
+encoded comment [[E5A]].
+
+This one is attributed to a named author: authored markup [[E5B]].
+
+A sticky note belongs at the end of this sentence [[E5C]].
+
+\section*{E6 --- underline, strikeout, squiggly}
+
+An underlined phrase [[E6A]] and a struck out phrase [[E6B]] and a
+squiggly phrase [[E6C]] all appear in this paragraph.
+
+\section*{E7 --- two columns}
+
+\begin{multicols}{2}
+Column one carries a fair amount of filler so that the highlight lands
+partway down and the two columns overlap vertically. This matters
+because a naive vertical sort will interleave the columns. Here is a
+highlight confined to the left column [[E7A]] and the column continues
+below it with more filler text to push the balance point further down
+the page than it would otherwise sit.
+
+\columnbreak
+
+Column two also carries filler, positioned so that its lines sit at
+roughly the same heights as the left column's lines. Here is a
+highlight confined to the right column [[E7B]] followed by yet more
+filler so that the two columns end up of similar length and the
+vertical bands genuinely overlap each other.
+\end{multicols}
+
+\clearpage
+\pdfpageattr{/Rotate 90}
+\section*{E8 --- rotated page}
+
+This page is rotated by ninety degrees. A highlight sits on a rotated
+page [[E8A]] here.
+
+\clearpage
+\pdfpageattr{/CropBox [20 20 575 822]}
+\section*{E9 --- CropBox inset from MediaBox}
+
+The CropBox on this page is inset by twenty points on every side. A
+cropped page highlight [[E9A]] sits here.
+
+\clearpage
+\pdfpageattr{}
+\section*{E10 --- no annotations}
+
+This page carries no annotations at all and must be skipped silently.
+
+\end{document}

@@ -1,0 +1,205 @@
+ANNOTATION SCRIPT FOR base.pdf
+==============================
+
+Purpose
+-------
+base.pdf contains no annotations. Annotate it by hand in each program you
+want to test, following the list below, then save each result as
+
+    base-<tool>-<version>.pdf        e.g. base-okular-24.08.pdf
+
+Do this in at least two or three different programs. The point is that all
+of them get compared against ONE expectation set, so any difference in the
+output is a difference in how that program writes annotations.
+
+Ground rules
+------------
+1. Do not let the tool flatten, optimise, or "print to PDF" the file. That
+   converts annotations into page content and destroys the test.
+2. Check the tool actually writes annotations INTO the PDF. Some readers
+   (Skim, Zotero) keep them in a sidecar by default; find the setting or
+   use a different tool.
+3. Every target phrase ends with a sentinel like [[E1A]]. ALWAYS include
+   the sentinel in the selection. The sentinel is how a test knows which
+   annotation it is looking at, and how it detects text bleeding in from a
+   neighbouring line.
+4. Selections start at the first word given and end at the sentinel's
+   closing brackets, inclusive. Nothing before, nothing after.
+5. Type comments exactly as written, including accents and punctuation.
+   Copy-paste rather than retype.
+6. Note the tool name and version in a file next to the PDF. If the tool
+   has a choice of highlight colour, use yellow unless told otherwise.
+
+----------------------------------------------------------------------
+E1 -- single line                                              (page 1)
+----------------------------------------------------------------------
+
+E1A   Type:     Highlight
+      Select:   "the predicted tracking error [[E1A]]"
+      Comment:  Plain ASCII comment.
+
+E1B   Type:     Highlight
+      Select:   "universe [[E1B]]"
+      Comment:  (none -- leave the comment empty)
+
+E1C   Type:     Highlight
+      Select:   "convex programming [[E1C]]"
+      Comment:  Does the period come too?
+      NOTE:     Stop the selection at the second "]". Do NOT include the
+                full stop that follows. Whether the extractor picks up
+                that period anyway is one of the things being measured.
+
+
+----------------------------------------------------------------------
+E2 -- wrapping across lines                                    (page 1)
+----------------------------------------------------------------------
+
+The first block is five lines long and wraps mid-word: the third line
+ends "issuer con-" and the fourth begins "centration". The second block
+sits directly underneath it.
+
+E2A   Type:     Highlight
+      Select:   the WHOLE first block, from "predicted tracking error"
+                through to "[[E2A]]" -- all five lines, in one single
+                selection (drag from start to end; do not make five
+                separate highlights).
+      Comment:  Five lines, one hyphenated break.
+
+E2B   Type:     Highlight
+      Select:   the WHOLE second block, from "a directly adjacent
+                passage" through to "[[E2B]]".
+      Comment:  Adjacent to E2A on purpose.
+
+      NOTE:     These two are deliberately adjacent. If E2A's extracted
+                text contains [[E2B]] or vice versa, the extractor's
+                vertical band is wrong.
+
+
+----------------------------------------------------------------------
+E3 -- inline mathematics                                       (page 1)
+----------------------------------------------------------------------
+
+E3A   Type:     Highlight
+      Select:   "the location mu, scale s and degrees of freedom nu
+                [[E3A]]" -- i.e. from the word "the" (after "Embrechts,")
+                through the Greek nu and on to the sentinel. It spans a
+                line break; make it one selection.
+      Comment:  Are the spaces around the maths recovered?
+
+E3B   Type:     Highlight
+      Select:   "K_valid [[E3B]]" -- the K with its subscript, then the
+                sentinel.
+      Comment:  Subscript at the selection edge.
+
+E3C   Type:     Highlight
+      Select:   the whole summation expression through to "[[E3C]]",
+                starting at the summation sign.
+      Comment:  Tall glyphs, centre outside the band.
+
+
+----------------------------------------------------------------------
+E4 -- ligatures                                                (page 1)
+----------------------------------------------------------------------
+
+Both phrases contain real ligature glyphs: "fixed" uses a single fi
+glyph, "efficient" uses ffi, "offline" uses ffl, "workflow" uses fl.
+
+E4A   Type:     Highlight
+      Select:   "short-term fixed income instruments [[E4A]]"
+      Comment:  No space inside "fixed".
+
+E4B   Type:     Highlight
+      Select:   "efficient offline workflow [[E4B]]"
+      Comment:  ffi, ffl and fl in one selection.
+
+
+----------------------------------------------------------------------
+E5 -- string encoding                                          (page 1)
+----------------------------------------------------------------------
+
+E5A   Type:     Highlight
+      Select:   "encoded comment [[E5A]]"
+      Comment:  (copy this line exactly)
+                Café, naïve, Größe, Ω, 漢字 — all of this must survive.
+
+E5B   Type:     Highlight
+      Select:   "authored markup [[E5B]]"
+      Comment:  Author name carries accents.
+      Author:   Renée Léa
+                (set the author/name field for THIS annotation only;
+                if your tool has one author setting for the session,
+                do E5B in a separate pass)
+
+E5C   Type:     Sticky note / text note / popup note -- NOT a highlight.
+                Place it at the end of the sentence, just after
+                "[[E5C]]".
+      Comment:  (two paragraphs, with a blank line between them)
+
+                No quads on this one; comment only.
+
+                Second paragraph of the same comment.
+
+
+----------------------------------------------------------------------
+E6 -- underline, strikeout, squiggly                           (page 1)
+----------------------------------------------------------------------
+
+E6A   Type:     Underline
+      Select:   "An underlined phrase [[E6A]]"
+      Comment:  Underline.
+
+E6B   Type:     Strikeout / strike through
+      Select:   "a struck out phrase [[E6B]]"
+      Comment:  StrikeOut.
+
+E6C   Type:     Squiggly / wavy underline
+      Select:   "a squiggly phrase [[E6C]]"
+      Comment:  Squiggly.
+      NOTE:     Many tools have no squiggly. Skip and note it if so.
+
+
+----------------------------------------------------------------------
+E7 -- two columns                                              (page 2)
+----------------------------------------------------------------------
+
+E7A   Type:     Highlight
+      Select:   "a highlight confined to the left column [[E7A]]"
+                It wraps within the left column. Take care the selection
+                does not jump into the right column.
+      Comment:  Must not pull in the right column.
+
+E7B   Type:     Highlight
+      Select:   "a highlight confined to the right column [[E7B]]"
+      Comment:  Must not pull in the left column.
+
+
+----------------------------------------------------------------------
+E8 -- rotated page                                             (page 3)
+----------------------------------------------------------------------
+
+This page is rotated ninety degrees. Your viewer will probably display
+it upright; annotate what you see.
+
+E8A   Type:     Highlight
+      Select:   "a highlight sits on a rotated page [[E8A]]"
+      Comment:  Rotated page.
+
+
+----------------------------------------------------------------------
+E9 -- CropBox inset from MediaBox                              (page 4)
+----------------------------------------------------------------------
+
+E9A   Type:     Highlight
+      Select:   "A cropped page highlight [[E9A]]"
+      Comment:  CropBox is inset by 20pt.
+      NOTE:     Compare against E1A. If an extractor gets E1A right and
+                E9A wrong, it is using the MediaBox where it should use
+                the CropBox, or the reverse.
+
+
+----------------------------------------------------------------------
+E10 -- no annotations                                          (page 5)
+----------------------------------------------------------------------
+
+Leave this page completely alone. An extractor must skip it silently:
+no warning, no empty record.
