@@ -4,10 +4,25 @@
   "producers": {
     "base-okular-26.04.3.pdf": {
       "E8A": {
-        "reason": "Okular cannot highlight on a /Rotate 90 page, so this annotation is absent from the file. An earlier attempt did save one, but with quads in the wrong coordinate frame (two of eleven outside the annotated line: x 295.07..301.68 y 62.36..713.62, 651pt tall, and x 295.07..300.21 y 53.15..62.36 over the page number). That file was discarded rather than kept as a fixture.",
-        "evidence": "Page 3 of this file carries zero markup annotations: /Annots contains no /Highlight. Verify with: python3 -c \"import pikepdf; print([str(a.get('/Subtype')) for a in pikepdf.open(FILE).pages[2].get('/Annots') or []])\"",
-        "escalate": "Okular"
+        "reason": "Okular highlights on a /Rotate 90 page would include the page number. In other words, it does not deal well with vertical highlighting."
       }
-    }
+    },
+    "base-firefox-153.0.4.pdf": {
+      "E5B": {
+        "reason": "Firefox can not add authors to comments yet."
+      },
+      "E5C": {
+        "reason": "Firefox has no sticky-note tool; only highlight, free text and draw."
+      },
+      "E6A": {
+        "reason": "Firefox has no underline tool; the highlighter is the only text-markup tool it offers."
+      },
+      "E6B": {
+        "reason": "Firefox has no strikeout tool."
+      },
+      "E6C": {
+        "reason": "Firefox has no squiggly tool."
+      }
+  }
   }
 }

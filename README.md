@@ -41,6 +41,15 @@ Anything finer (bullet, indent, headings, escaping) is set in `Style` in the sou
 
 [pdfannots](https://github.com/0xabu/pdfannots) tackles the same problem.
 
+[pdfannots2json](https://github.com/mgmeyers/pdfannots2json) tackles the same problem, focused on JSON output.
+
+[pdf-annotations-converter](https://crates.io/crates/pdf-annotations-converter) focuses on GoodReader's text export.
+
+[pdf-annot](https://crates.io/crates/pdf-annot) reads, creates, and edits PDF annotations. Part of [PDFluent](https://pdfluent.com/)
+
+[cli-pdf-extract](https://crates.io/crates/cli-pdf-extract) focuses on LLM-friendly PDF inspection. 
+
+
 ## Tests
 
 We test annotations inserted by hand using various PDF readers. Happy to include more if your case is not covered.
