@@ -1,0 +1,238 @@
+ANNOTATION SCRIPT FOR tests/text/base.pdf
+=========================================
+
+Purpose
+-------
+One topic: the string recovered from ONE annotation's quads. Which
+glyphs a quad claims, and which characters those glyphs become.
+
+Output sequence is tests/order. Page attributes are tests/page. What
+the producer wrote into the annotation dictionary is tests/inventory
+and tests/comments. Dictionaries no producer will write are
+tests/structure.
+
+Everything here is on one page, in a single column, with generous
+margins. No item in this family should ever fail because of where the
+quad is; only because of what came out of it.
+
+base.pdf contains no annotations. Annotate it by hand in each program
+you want to test, following the list below, then save each result as
+
+    base-<tool>-<version>.pdf        e.g. base-okular-26.04.3.pdf
+
+into producers/. All of them are compared against ONE expectation set,
+so any difference in the output is a difference in how that program
+writes annotations.
+
+Ground rules
+------------
+1. Do not let the tool flatten, optimise, or "print to PDF" the file.
+2. Check the tool writes annotations INTO the PDF, not into a sidecar.
+3. Sentinels are [[TXnn]]. ALWAYS include the sentinel in the selection.
+   It is how a test knows which annotation it is looking at, and how it
+   detects text bleeding in from a neighbouring line.
+4. Type comments exactly as written. Copy-paste rather than retype.
+5. Yellow unless told otherwise. Record tool name and version.
+
+One addition specific to this family:
+
+6. THE SENTINEL IS AT THE START, NOT THE END, IN TX3A AND TX3C. Those
+   selections deliberately stop inside a word, so they cannot end with
+   one. Read each item rather than working from the pattern.
+
+If your tool cannot make a selection an item asks for, do not
+approximate it. Leave the item out and add an entry to skips.json with
+evidence, as tests/basic does for Okular and E8A.
+
+Twelve items over twelve targets. TX2X and TX2Y are decoys and take no
+annotation at all.
+
+----------------------------------------------------------------------
+TX1 -- ligature at a real word boundary
+----------------------------------------------------------------------
+
+"tariff" and "staff" end in a single ff ligature glyph, which this
+document maps to U+FB00, the Unicode presentation form. A real space
+follows it. A tool that rewrites U+FB0x with a pattern that also
+swallows following whitespace closes that gap and joins the two words.
+
+"offer" carries the same ff ligature but mid-word, with no space after
+it, and "fixed" carries a decomposed fi. Together they are the control:
+whatever TX1A and TX1B do, TX1C must be unaffected.
+
+TX1A   Type:     Highlight
+       Select:   "the marginal tariff [[TX1A]]"
+       Comment:  Ligature ends the word; a real space follows.
+
+TX1B   Type:     Highlight
+       Select:   "a tariff on imported staff [[TX1B]]"
+       Comment:  Two word-final ligatures in one selection.
+
+TX1C   Type:     Highlight
+       Select:   "the fixed offer [[TX1C]]"
+       Comment:  Control: ligatures with no space after them.
+
+       NOTE:     The five U+FB00 glyphs in this document are all in
+                 TX1 and TX3C. If a later change to the preamble or the
+                 font loses the presentation form, these items still
+                 pass and stop testing anything:
+
+                   pdftotext base.pdf - | grep -c $'\ufb00'   # 5
+
+----------------------------------------------------------------------
+TX2 -- adjacent lines, tight leading
+----------------------------------------------------------------------
+
+Four lines eight points apart, so each line's glyph boxes reach about
+1.7pt into its neighbours'. Only the middle two are annotated. [[TX2X]]
+above and [[TX2Y]] below are DECOYS: they must appear in no extracted
+text anywhere. Leave them unannotated.
+
+The block is deliberately cramped and awkward to select. That is the
+point. Zoom in; take the time to get exactly one line.
+
+TX2A   Type:     Highlight
+       Select:   "the target line itself, selected on its own [[TX2A]]"
+                 -- that line ONLY.
+       Comment:  One line from a tight block.
+
+TX2B   Type:     Highlight
+       Select:   "the line below the target, also selected on its own
+                 [[TX2B]]" -- that line ONLY.
+       Comment:  The line directly below TX2A.
+
+       NOTE:     After saving, check the quads in THIS producer's file
+                 actually overlap the neighbouring lines. A tool that
+                 writes quads tight to the glyph boxes does not
+                 exercise the case at all, and its pass means nothing:
+
+                   python3 -c "import pikepdf; \
+                     print([list(a['/QuadPoints']) for a in \
+                     pikepdf.open(FILE).pages[0]['/Annots']])"
+
+                 Record what you find in PRODUCERS.md.
+
+----------------------------------------------------------------------
+TX3 -- quad edges inside a word
+----------------------------------------------------------------------
+
+Each selection stops or starts mid-word, so the quad edge falls between
+two glyphs of one word and, in most producers, of one text-showing
+operator. There are two opposite failure modes -- clipping the last
+covered glyph away, and over-capturing to the end of the whole word or
+span -- and both are measured here.
+
+TX3C is different, and is the one item where the edge falls INSIDE a
+glyph. A selection snaps to a character boundary, which is normally a
+glyph boundary too; a ligature is one glyph carrying two characters, so
+stopping between them is the only way to split a glyph by hand.
+
+Most tools snap a drag-selection to word boundaries. Use a
+character-level selection if the tool offers one.
+
+TX3A   Type:     Highlight
+       Select:   START at "[[TX3A]]" and END in the MIDDLE of
+                 "premium", after the "u":
+                   "[[TX3A]] a persistent leverage premiu"
+       Comment:  Ends inside a glyph run.
+       NOTE:     The sentinel is at the START of this one.
+
+TX3B   Type:     Highlight
+       Select:   START in the MIDDLE of "marginal", before the "g":
+                   "ginal contribution [[TX3B]]"
+       Comment:  Starts inside a glyph run.
+
+TX3C   Type:     Highlight
+       Select:   START at "[[TX3C]]" and END as close to the first 'f' as
+                 possiblebetween the two f's of "payoff":
+                   "[[TX3C]] the annual payo"
+       Comment:  Edge inside a ligature glyph.
+       NOTE:     The sentinel is at the START of this one.
+       Expect:   the ligature EXCLUDED, so the recovered text ends
+                 "payo". A glyph cannot be half-emitted, and the
+                 canonical rule drops a glyph whose advance lies mostly
+                 outside the quad. Emitting the whole "payoff" is
+                 defensible; expected.json records the choice.
+
+       NOTE:     TX3 is the section most at risk of being unproducible.
+                 If NO available viewer offers character-level
+                 selection, TX3A and TX3B cannot be hand-annotated and
+                 move to tests/structure, where a quad edge can be
+                 written directly. TX3C is likely to be unproducible
+                 even where the others are not, because a tool may
+                 refuse to place a caret inside a ligature. Record the
+                 attempt in skips.json first: the escalation has to be
+                 evidenced, not assumed.
+
+----------------------------------------------------------------------
+TX4 -- hyphenated line breaks
+----------------------------------------------------------------------
+
+Both blocks break at a hyphen, and nothing in the PDF distinguishes
+them: a discretionary hyphen and a compound hyphen are the same glyph
+in the same position. This is the ambiguity the README documents,
+pinned here so that the default and --keep-hyphens each have a fixed
+answer.
+
+TX4A   Type:     Highlight
+       Select:   the WHOLE block, "the surrounding infra-" through
+                 "[[TX4A]]", in ONE selection across both lines.
+       Comment:  Break inside one word.
+
+TX4B   Type:     Highlight
+       Select:   the WHOLE block, "a memory-" through "[[TX4B]]", in
+                 ONE selection across both lines.
+       Comment:  Break on a compound hyphen.
+
+       NOTE:     AMBIGUITY, and a decision rather than a defect. Under
+                 the default TX4A is right and TX4B is wrong; under
+                 --keep-hyphens the reverse. No setting makes both
+                 right, which is the point of the pair.
+
+                 This corpus keeps no variant lists -- see the
+                 comparison note in expected.json -- so following
+                 tests/basic E2A, canonical assumes DEFAULT options.
+                 TX4B's canonical value is therefore the tool's answer,
+                 "memorymapped", and not what the document means. That
+                 is the one place in this family where the two differ,
+                 and expected.json says so in TX4B's own notes.
+
+       NOTE:     TX5B contains "co-operative", a hyphen in the middle
+                 of a line rather than at a break. It must survive
+                 under BOTH settings. If it does not, the defect is in
+                 hyphen handling generally, not in the line-break rule,
+                 and TX4 will mislead you about where to look.
+
+----------------------------------------------------------------------
+TX5 -- non-ASCII in the covered text
+----------------------------------------------------------------------
+
+Accents, dashes and quotation marks in the DOCUMENT, decoded through
+the font's /ToUnicode. This is a separate path from the comment
+decoding in tests/comments and shares none of its code, which is why
+it needs its own items rather than riding on CM1.
+
+TX5A   Type:     Highlight
+       Select:   the whole line:
+                   the Größe of a café — naïve, précis, Ångström [[TX5A]]
+       Comment:  Accents and an em dash in the covered text.
+       Expect:   Größe, café, naïve, précis, Ångström, and U+2014 with
+                 a space either side.
+
+TX5B   Type:     Highlight
+       Select:   the whole line, including the curly quotation marks:
+                   the “efficient” frontier’s edge – a co-operative fixed point [[TX5B]]
+       Comment:  Curly quotes, an apostrophe and an en dash.
+       Expect:   U+201C and U+201D around efficient, U+2019 in
+                 frontier's, U+2013 between edge and a, and a plain
+                 ASCII hyphen in co-operative.
+
+       NOTE:     The quotation marks in the PDF are curly, U+201C and
+                 U+201D. If they come back as ASCII " then something in
+                 the chain is normalising, which is a silent change to
+                 the author's text and worth knowing about even if it
+                 looks harmless.
+
+       NOTE:     "efficient" carries a decomposed ffi, unlike TX1's ff.
+                 A tool that passes TX1 and fails here is treating the
+                 two ligature forms differently.

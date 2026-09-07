@@ -17,6 +17,10 @@
 //!
 //! Adding a producer, or a whole family, needs no change to this file.
 //! (Cargo ignores `tests/basic/` as a build target: it has no `main.rs`.)
+//!
+//! Pairing. An expectation is bound to the record that claims it by its
+//! sentinel where it has one, and by page + subtype + comment where it does
+//! not. Both kinds still assert `covered_text`: see `matched_by_sentinel`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -36,8 +40,19 @@ struct Expected {
 struct ExpectedAnnot {
     id: String,
     page: usize,
-    /// PDF subtype name: Highlight, Underline, StrikeOut, Squiggly, Text
+    /// PDF subtype name: Highlight, Underline, StrikeOut, Squiggly, Text,
+    /// FreeText, Ink, Square. Mapped to our `kind` by `kind_for`.
     subtype: String,
+    /// What the selection covers, `null` when the record has none.
+    ///
+    /// Three states, and they are not interchangeable:
+    ///
+    /// * carries this item's own `[[id]]` — paired by sentinel, text compared
+    /// * set but carries no sentinel — paired by comment, text still compared.
+    ///   For annotations that cannot hold a distinct sentinel because they
+    ///   cover the same words as another (tests/inventory IN1).
+    /// * `null` — paired by comment, and the record must have no covered text
+    ///   either. For annotations with no quads: notes, replies, FreeText.
     covered_text: Option<String>,
     comment: Option<String>,
     /// null means "any value": producers commonly substitute the system user
@@ -115,6 +130,7 @@ fn families() -> Vec<Family> {
             .unwrap_or_else(|e| panic!("cannot read {}: {e}", expected_path.display()));
         let expected: Expected = serde_json::from_slice(&bytes)
             .unwrap_or_else(|e| panic!("{} did not parse: {e}", expected_path.display()));
+        validate(&expected, &expected_path);
 
         let mut producers: Vec<PathBuf> = std::fs::read_dir(dir.join("producers"))
             .map(|rd| {
@@ -216,32 +232,119 @@ fn kind_for(subtype: &str) -> &'static str {
         "Squiggly" => "squiggly",
         "Text" => "note",
         "FreeText" => "freetext",
+        "Ink" => "ink",
+        "Square" => "square",
+        // Deliberately a panic and not a fallback: a silent default would let
+        // a typo through as a subtype that never matches anything.
         other => panic!("expected.json has an unmapped subtype: {other}"),
     }
 }
 
+/// Is this item paired by its sentinel?
+///
+/// Yes when its `covered_text` carries its own id. Some items cannot: two
+/// annotations over identical words would have to share a sentinel, and
+/// `pair` binds the expectation whose *id equals a sentinel in the extracted
+/// text*, so one sentinel cannot serve two ids. Those are paired on page,
+/// subtype and comment instead — and their `covered_text` is still compared
+/// exactly by `text_matches`, which is the point of doing it this way rather
+/// than keying on whether `covered_text` is set at all.
+fn matched_by_sentinel(e: &ExpectedAnnot) -> bool {
+    e.covered_text
+        .as_deref()
+        .is_some_and(|t| sentinels(t).contains(&e.id))
+}
+
 /// Pair each expectation with the record that claims it.
 ///
-/// Sentinel matching wherever there is covered text; items without it (sticky
-/// notes) fall back to page + subtype + comment.
+/// By sentinel where the expectation has one, by page + subtype + comment
+/// where it does not. `validate` guarantees that every item has one or the
+/// other, and that no two comment-matched items collide.
 fn pair<'a>(exp: &'a [ExpectedAnnot], got: &'a [Record]) -> BTreeMap<String, Option<&'a Record>> {
     let mut by_id = BTreeMap::new();
     for e in exp {
-        let found = match &e.covered_text {
-            Some(_) => got.iter().find(|r| {
+        let found = if matched_by_sentinel(e) {
+            got.iter().find(|r| {
                 r.covered_text
                     .as_deref()
                     .is_some_and(|t| sentinels(t).contains(&e.id))
-            }),
-            None => got.iter().find(|r| {
+            })
+        } else {
+            got.iter().find(|r| {
                 r.page == e.page
                     && r.kind == kind_for(&e.subtype)
                     && r.comment.as_deref() == e.comment.as_deref()
-            }),
+            })
         };
         by_id.insert(e.id.clone(), found);
     }
     by_id
+}
+
+/// Reject an `expected.json` that cannot be paired unambiguously.
+///
+/// Which branch `pair` takes is inferred rather than declared, which keeps the
+/// schema small but makes a mistyped sentinel silent: the item would quietly
+/// fall back to comment matching and fail with a message about a comment
+/// nobody was thinking about. These four checks turn each such mistake into
+/// a named error at load time.
+fn validate(expected: &Expected, path: &Path) {
+    for e in &expected.annotations {
+        // A sentinel that is not this item's own id: a typo, or an id that was
+        // renamed and missed in one place.
+        if let Some(text) = e.covered_text.as_deref() {
+            let found = sentinels(text);
+            assert!(
+                found.is_empty() || found.contains(&e.id),
+                "{}: {} has covered_text carrying sentinels {:?} but not its \
+                 own id — a typo, or a renamed id",
+                path.display(),
+                e.id,
+                found
+            );
+        }
+
+        // Nothing to pair on at all. Without a comment this would bind to
+        // whichever record on the page happens to have a null comment.
+        assert!(
+            matched_by_sentinel(e) || e.comment.is_some(),
+            "{}: {} has neither a sentinel nor a comment to pair on",
+            path.display(),
+            e.id
+        );
+    }
+
+    // `find` returns the FIRST match, so two comment-matched items sharing
+    // page, subtype and comment would both bind to one record and the second
+    // would silently assert the first one's content.
+    let mut seen: BTreeMap<(usize, &str, Option<&str>), &str> = BTreeMap::new();
+    for e in &expected.annotations {
+        if matched_by_sentinel(e) {
+            continue;
+        }
+        let key = (e.page, e.subtype.as_str(), e.comment.as_deref());
+        if let Some(prev) = seen.insert(key, e.id.as_str()) {
+            panic!(
+                "{}: {} and {} are both paired by comment and share page, \
+                 subtype and comment — they would bind to the same record",
+                path.display(),
+                prev,
+                e.id
+            );
+        }
+    }
+
+    // Ids must be unique, or `pair`'s map silently keeps one of them.
+    let mut ids: Vec<&str> = expected.annotations.iter().map(|a| a.id.as_str()).collect();
+    ids.sort_unstable();
+    for w in ids.windows(2) {
+        assert!(
+            w[0] != w[1],
+            "{}: duplicate item id {}",
+            path.display(),
+            w[0]
+        );
+    }
 }
 
 /// Non-whitespace characters, sorted: the comparison used when an item's
@@ -335,23 +438,37 @@ fn producers_match_expected() {
                 checked += 1;
 
                 let Some(r) = paired[&e.id] else {
-                    // Nothing carries the sentinel. Look for a record with the
-                    // same comment so the message shows what was extracted
-                    // instead of leaving the reader to go digging.
-                    let by_comment = got
-                        .iter()
-                        .find(|r| r.page == e.page && r.comment.as_deref() == e.comment.as_deref());
-                    failures.push(match by_comment {
-                        Some(r) => format!(
-                            "[{tag}] {}: no record carries this sentinel; the record \
-                             with a matching comment has covered_text {:?}",
-                            e.id, r.covered_text
-                        ),
-                        None => format!(
-                            "[{tag}] {}: no record claims this item, and none carries \
-                             its comment either",
-                            e.id
-                        ),
+                    // Say which way the item was being paired. Reporting a
+                    // missing sentinel for a comment-matched item names
+                    // something that was never expected to exist.
+                    failures.push(if matched_by_sentinel(e) {
+                        // Look for a record with the same comment so the
+                        // message shows what was extracted instead of leaving
+                        // the reader to go digging.
+                        let by_comment = got.iter().find(|r| {
+                            r.page == e.page && r.comment.as_deref() == e.comment.as_deref()
+                        });
+                        match by_comment {
+                            Some(r) => format!(
+                                "[{tag}] {}: no record carries this sentinel; the record \
+                                 with a matching comment has covered_text {:?}",
+                                e.id, r.covered_text
+                            ),
+                            None => format!(
+                                "[{tag}] {}: no record claims this item, and none carries \
+                                 its comment either",
+                                e.id
+                            ),
+                        }
+                    } else {
+                        format!(
+                            "[{tag}] {}: paired by comment, but no {:?} record on page {} \
+                             has comment {:?}",
+                            e.id,
+                            kind_for(&e.subtype),
+                            e.page,
+                            e.comment
+                        )
                     });
                     continue;
                 };
@@ -410,6 +527,32 @@ fn producers_match_expected() {
                         "[{tag}] {}: author {:?}, expected {:?}",
                         e.id, r.author, e.author
                     ));
+                }
+
+                // A comment-matched item is bound with `find`, which takes
+                // the first hit, so a doubly-emitted quad-less annotation
+                // would pair cleanly and go unnoticed. Sentinel-matched items
+                // are covered by the duplicate check in
+                // `no_duplicate_or_extra_records`; these are not.
+                if !matched_by_sentinel(e) {
+                    let n = got
+                        .iter()
+                        .filter(|r| {
+                            r.page == e.page
+                                && r.kind == kind_for(&e.subtype)
+                                && r.comment.as_deref() == e.comment.as_deref()
+                        })
+                        .count();
+                    if n > 1 {
+                        failures.push(format!(
+                            "[{tag}] {}: {n} records share page {}, kind {:?} and this \
+                             item's comment — it is paired by comment, so they are \
+                             indistinguishable",
+                            e.id,
+                            e.page,
+                            kind_for(&e.subtype)
+                        ));
+                    }
                 }
 
                 // Bleed: text must carry its own sentinel and no other.

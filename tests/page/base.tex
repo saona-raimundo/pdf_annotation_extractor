@@ -1,0 +1,195 @@
+% =====================================================================
+% Annotation-extraction fixture: PAGE
+%
+%   pdflatex base.tex && python3 make.py
+%
+% TOPIC: attributes the extractor must read from the DOCUMENT rather
+% than from the annotation, in order to answer two questions about a
+% quad -- WHERE is it on the page, and WHAT IS THE PAGE CALLED.
+%
+% /Rotate, /CropBox, /MediaBox and the other page boxes answer the
+% first. The catalog's /PageLabels answers the second. None of them is
+% reachable from the annotation dictionary, and an extractor that never
+% looks at them is wrong on every page that has any.
+%
+% Not here: characters under a quad (tests/text), declared text
+% (tests/actualtext), the annotation dictionary (tests/inventory,
+% tests/comments), dictionaries no producer writes (tests/structure).
+%
+% Every page carries the SAME sentence and takes ONE highlight, so
+% expected.json is one item repeated and a failure names exactly one
+% attribute combination with no reading required. The work is
+% seventeen near-identical drags.
+%
+% ---------------------------------------------------------------------
+% THE GRID
+%
+%  id    Rotate  CropBox  MediaBox   also            what it isolates
+%  ----  ------  -------  ---------  --------------  --------------------
+%  PG01       0        -    default  (no label)      control
+%  PG02      90        -    default                  rotation alone
+%  PG03     180        -    default
+%  PG04     270        -    default
+%  PG05       0    inset    default                  crop alone
+%  PG06      90    inset    default                  rotation x crop
+%  PG07     180    inset    default
+%  PG08     270    inset    default
+%  PG09       0        -    shifted                  origin alone
+%  PG10      90        -    shifted                  rotation x origin
+%  PG11     180        -    shifted
+%  PG12     270        -    shifted
+%  PG13       0    inset    shifted                  two offsets compose
+%  PG14     -90        -    default                  out-of-range value
+%  PG15       0        -    INHERITED                absent from the page
+%  PG16  INHER.90       -   default                  absent from the page
+%  PG17       0    inset    default  /TrimBox        a box to IGNORE
+%
+% PG01 is the control. It separates a systematic error, which breaks
+% every page, from a combination-specific one, which breaks only some.
+%
+% PG06-PG08 and PG10-PG12 are the point of the family. Rotation and an
+% offset -- whether from an inset /CropBox or a shifted /MediaBox --
+% adjust the same coordinates, and an implementation that gets each
+% right alone can still combine them with the wrong sign. That is a
+% real defect shape, not a hypothetical: pdfannots2json subtracts
+% CropBox from MediaBox on one rotation and MediaBox from CropBox on
+% another. Only a page with both features set shows it, and only the
+% full set of four rotations shows WHICH rotation is wrong.
+%
+% PG17 is a negative case. Print-ready PDFs from publishers routinely
+% carry /TrimBox and /BleedBox, and a tool that reaches for the wrong
+% box mislocates every quad on the page. Here /CropBox is inset 20pt
+% and /TrimBox 40pt, so using /TrimBox is off by exactly 20pt in both
+% directions rather than subtly wrong.
+%
+% PG14 is legal-ish and common. ISO 32000-1 requires /Rotate to be a
+% multiple of 90; it does not require it to be in [0,360). Producers
+% write -90 and 450. A tool that switches on the raw value, or divides
+% by 90 without normalising first, fails here and nowhere else.
+%
+% PG15 and PG16 are the silent ones. /MediaBox, /CropBox and /Rotate
+% are all inheritable (ISO 32000-1 Table 30), so a page dictionary may
+% omit them and take the value from /Pages. A tool that reads the page
+% dictionary only loses the page with no error at all -- data loss that
+% looks like a clean run. They are the two cases make.py exists for.
+% ---------------------------------------------------------------------
+%
+% PAGE LABELS. The catalog names the pages, and the numbering a paper
+% uses is the numbering a citation must use:
+%
+%   physical  1     2  3   4    5..10    11..14      15  16  17
+%   label     none  i  ii  iii  1..6     A  B  C  D  App-  App-  App-
+%
+% Four styles, plus two hazards worth stating rather than discovering.
+% Physical page 1 falls before the first /Nums entry and therefore has
+% NO label at all, which is legal. Pages 15-17 use a prefix with no /S,
+% which is also legal and gives all three pages THE SAME LABEL. Page
+% labels are not unique and not always present; anything that keys on
+% them has to survive both.
+%
+% ---------------------------------------------------------------------
+% \pdfpageattr IS STICKY. It persists to every following page until
+% changed, so a page with no \pdfpageattr silently inherits the
+% previous page's attributes -- which produced a wrong grid the first
+% time this file was written. EVERY page below sets it, including
+% PG16, whose empty {} is load-bearing rather than decorative.
+% Verify the grid after any edit:
+%     python3 make.py --check
+% ---------------------------------------------------------------------
+%
+% Deliberate choices, following tests/basic/base.tex: no hyperref,
+% uncompressed, one sentinel [[PGnn]] per target.
+% =====================================================================
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=3cm]{geometry}
+
+\input glyphtounicode
+\pdfgentounicode=1
+
+\pdfcompresslevel=0
+\pdfobjcompresslevel=0
+
+\pdfcatalog{/PageLabels << /Nums [
+   1 << /S /r >>
+   4 << /S /D /St 1 >>
+  10 << /S /A /St 1 >>
+  14 << /P (App-) >>
+] >>}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+% One page: heading, a line naming the attributes, then the single
+% uniform target sentence. The target is identical on all seventeen.
+\newcommand{\target}[2]{%
+  \section*{#1}%
+  #2\par
+  A highlight sits on this page [[#1]] and the sentence continues after
+  it so the quad has text on both sides.\par
+}
+
+\begin{document}
+
+\pdfpageattr{/Rotate 0}
+\target{PG01}{Control: no rotation, no crop, default media box, no page label.}
+
+\clearpage \pdfpageattr{/Rotate 90}
+\target{PG02}{/Rotate 90.}
+
+\clearpage \pdfpageattr{/Rotate 180}
+\target{PG03}{/Rotate 180.}
+
+\clearpage \pdfpageattr{/Rotate 270}
+\target{PG04}{/Rotate 270.}
+
+\clearpage \pdfpageattr{/Rotate 0 /CropBox [20 20 575.276 821.89]}
+\target{PG05}{/CropBox inset 20pt on every side.}
+
+\clearpage \pdfpageattr{/Rotate 90 /CropBox [20 20 575.276 821.89]}
+\target{PG06}{/Rotate 90 with an inset /CropBox.}
+
+\clearpage \pdfpageattr{/Rotate 180 /CropBox [20 20 575.276 821.89]}
+\target{PG07}{/Rotate 180 with an inset /CropBox.}
+
+\clearpage \pdfpageattr{/Rotate 270 /CropBox [20 20 575.276 821.89]}
+\target{PG08}{/Rotate 270 with an inset /CropBox.}
+
+\clearpage \pdfpageattr{/Rotate 0 /MediaBox [20 20 615.276 861.89]}
+\target{PG09}{/MediaBox origin at (20,20), same page size.}
+
+\clearpage \pdfpageattr{/Rotate 90 /MediaBox [20 20 615.276 861.89]}
+\target{PG10}{/Rotate 90 with the origin at (20,20).}
+
+\clearpage \pdfpageattr{/Rotate 180 /MediaBox [20 20 615.276 861.89]}
+\target{PG11}{/Rotate 180 with the origin at (20,20).}
+
+\clearpage \pdfpageattr{/Rotate 270 /MediaBox [20 20 615.276 861.89]}
+\target{PG12}{/Rotate 270 with the origin at (20,20).}
+
+\clearpage \pdfpageattr{/Rotate 0 /MediaBox [20 20 615.276 861.89]
+                        /CropBox [40 40 595.276 841.89]}
+\target{PG13}{Shifted origin AND an inset /CropBox: two offsets compose.}
+
+\clearpage \pdfpageattr{/Rotate -90}
+\target{PG14}{/Rotate -90, which is 270 normalised.}
+
+\clearpage \pdfpageattr{/Rotate 0}
+\target{PG15}{/MediaBox deleted by make.py; inherited from /Pages.}
+
+% The empty attribute is load-bearing: it stops PG14's /Rotate -90 from
+% carrying over, and leaves this page with no /Rotate of its own so it
+% inherits the 90 that make.py puts on /Pages.
+\clearpage \pdfpageattr{}
+\target{PG16}{/Rotate absent; make.py puts 90 on /Pages to be inherited.}
+
+\clearpage \pdfpageattr{/Rotate 0 /CropBox [20 20 575.276 821.89]
+                        /TrimBox [40 40 555.276 801.89]}
+\target{PG17}{An inset /CropBox and a DIFFERENT /TrimBox, which must be ignored.}
+
+\end{document}

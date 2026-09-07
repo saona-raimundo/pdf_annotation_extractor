@@ -1,0 +1,167 @@
+{
+  "fixture": "inventory",
+  "source": "base.tex + make.py",
+  "schema": 3,
+  "provenance": "covered_text is what base.tex says each selection covers, read back from pdftotext on base.pdf. Six of the thirteen expected records have NO covered text -- four because they have no quads, and the IN1 pair because they cover identical words -- and one is expected not to appear at all -- so this file has THIRTEEN entries for FOURTEEN actions. That asymmetry is the family's subject, not an oversight. No producer file existed when this was written.",
+  "matching": "Match by the [[INnn]] sentinel in covered_text where there is one. SIX ITEMS HAVE covered_text: null and are matched by page, subtype and comment, as tests/basic E5C is: IN1A and IN1B because they cover identical words and cannot carry distinct sentinels, and IN2B, IN5A, IN5B, IN5C because they have no quads at all. Their comments are therefore load-bearing and must be typed exactly. An extracted text containing a sentinel other than its own fails regardless of the rest of the string.",
+  "author_policy": "author is null for every item: any value passes. Producers commonly overwrite /T with the system user name.",
+  "pages_without_annotations": [],
+  "annotations": [
+    {
+      "id": "IN1A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "this one target phrase",
+      "comment": "First of two at the same place.",
+      "author": null
+    },
+    {
+      "id": "IN1B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "this one target phrase",
+      "comment": "Second of two at the same place.",
+      "author": null,
+      "notes": "The second of the pair. One record means the producer merged them or we dropped one; two records colliding on id means the id scheme is derived from coordinates alone."
+    },
+    {
+      "id": "IN2A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "this target phrase [[IN2A]]",
+      "comment": "The original remark.",
+      "author": null,
+      "notes": "The parent of the reply."
+    },
+    {
+      "id": "IN2B",
+      "page": 1,
+      "subtype": "Text",
+      "status": "expected",
+      "covered_text": null,
+      "comment": "The reply to it.",
+      "author": null,
+      "notes": "A reply carries /IRT pointing at IN2A and has no quads, so it is matched by page, subtype and comment. EXPECTED AS A SEPARATE TOP-LEVEL RECORD, which is current behaviour per the README rather than an endorsement: nothing in the output says it is subordinate. Pinned so a change is deliberate. FRAGILE: the subtype is assumed to be /Text, which is what Acrobat writes. A producer writing something else breaks the pairing rather than the assertion -- record the subtype in PRODUCERS.md and widen this if it varies."
+    },
+    {
+      "id": "IN3A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "this target phrase [[IN3A]]",
+      "comment": "Marked accepted.",
+      "author": null,
+      "notes": "The parent of the review state. ITS CHILD IS DELIBERATELY ABSENT FROM THIS FILE -- see must_not_appear. IN3 therefore contributes ONE record from two annotations."
+    },
+    {
+      "id": "IN4A",
+      "page": 1,
+      "subtype": "Squiggly",
+      "status": "expected",
+      "covered_text": "this target phrase [[IN4A]]",
+      "comment": "Squiggly.",
+      "author": null,
+      "notes": "THE STRONGEST ITEM IN THE FAMILY. pdfannots2json's GetAnnotationType returns Unsupported for anything outside Highlight/StrikeOut/Underline/Square/Text, so a Squiggly vanishes with no warning at all. That is the mechanism the whole family is built around: an allowlist fails silently and closed, a denylist fails loudly and open."
+    },
+    {
+      "id": "IN4B",
+      "page": 1,
+      "subtype": "StrikeOut",
+      "status": "expected",
+      "covered_text": "this other target phrase [[IN4B]]",
+      "comment": "Strikeout.",
+      "author": null,
+      "notes": "Widely supported, and the control for IN4A: if this passes and IN4A does not, the subtype table stops short rather than markup being unsupported."
+    },
+    {
+      "id": "IN4C",
+      "page": 1,
+      "subtype": "Underline",
+      "status": "expected",
+      "covered_text": "this third target phrase [[IN4C]]",
+      "comment": "Underline.",
+      "author": null,
+      "notes": "Completes the four text markup subtypes; Highlight is exercised in every other family. Each of the three sits on its own single typeset line, so each is ONE quad -- deliberate, because a quad-joining failure has no business deciding a count here."
+    },
+    {
+      "id": "IN5A",
+      "page": 2,
+      "subtype": "FreeText",
+      "status": "expected",
+      "covered_text": null,
+      "comment": "Free text box.",
+      "author": null,
+      "notes": "A typewriter or text-box annotation. Its text is its /Contents, drawn on the page rather than in a popup. POLICY: emitted, because a reader typed it as a note and it carries a comment. See emission_rule."
+    },
+    {
+      "id": "IN5B",
+      "page": 2,
+      "subtype": "Ink",
+      "status": "expected",
+      "covered_text": null,
+      "comment": "Ink scribble.",
+      "author": null,
+      "notes": "A freehand scribble WITH a comment. POLICY: emitted, on the same rule as IN5A -- no quads but a comment. Most desktop pen tools take no comment at all, and an Ink annotation with no /Contents falls under the third clause of emission_rule and would NOT be a record; if the producer cannot set the comment, skip the item rather than reinterpreting it."
+    },
+    {
+      "id": "IN5C",
+      "page": 2,
+      "subtype": "Square",
+      "status": "expected",
+      "covered_text": null,
+      "comment": "Square region.",
+      "author": null,
+      "notes": "A rectangle over blank space. POLICY: emitted, same rule. pdfannots2json supports /Square explicitly, which is why it is a hand item rather than an exclusion."
+    },
+    {
+      "id": "IN6A",
+      "page": 3,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "this target phrase [[IN6A]]",
+      "comment": "Shares a page with furniture.",
+      "author": null,
+      "notes": "THE ONLY RECORD FROM PAGE 3's FURNITURE PAGE. make.py has put a /Widget and two /Link annotations there, built to defeat both structure-keyed filter styles: the /URI link carries /QuadPoints AND /Contents, the /GoTo link carries neither. If exactly the /URI link leaks, the filter is keyed on quads or contents rather than /Subtype -- a specific, reportable finding rather than 'you forgot to exclude links'."
+    },
+    {
+      "id": "IN7A",
+      "page": 3,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "this target phrase [[IN7A]]",
+      "comment": "Popup left open on save.",
+      "author": null,
+      "notes": "A highlight whose /Popup was left open, so a producer may have written /Open true and copied the comment into the popup dictionary as well. Then the comment is genuinely in the file TWICE and nothing is misfiltered -- which is why /Popup is in the subtype exclusion list rather than handled by content. Expected: ONE record."
+    }
+  ],
+  "emission_rule": "The rule this family exists to establish, in three clauses plus a filter. (1) An annotation WITH QUADS is a record, even with no comment: a bare highlight marks text, which is information -- tests/basic E1B and tests/comments CM2B. (2) An annotation with NO quads but WITH a comment is a record: sticky notes, FreeText, Ink and Square with a comment, and replies -- IN2B, IN5A, IN5B, IN5C. (3) An annotation with NEITHER quads NOR a comment is NOT a record: it carries no information and an empty record is noise. That single clause covers the review-state child in IN3 and a bare Ink scribble with no /Contents, which is why they are not entries here. And regardless of all three: /Popup, /Link and /Widget are NEVER records, filtered on /Subtype and not on structure.",
+  "counts": {
+    "page 1": 8,
+    "page 2": 3,
+    "page 3": 2,
+    "total": 13,
+    "note": "THE FAMILY'S NATIVE ASSERTION. Thirteen records from fourteen annotator actions plus three pieces of document furniture. Page 3 is the sharpest: five objects in /Annots -- one highlight, its popup, a widget and two links -- and exactly ONE record. Counts are not expressible in the current harness; the extras check catches an over-emission, but a silent drop only shows as a missing item."
+  },
+  "must_not_appear": {
+    "IN3B, the review-state child": "An /IRT child with /State, /StateModel and an EMPTY /Contents, which Acrobat writes when you set a status. Clause 3 of emission_rule: no quads, no comment, no record. It is deliberately absent from the annotations array -- do not add an entry for it. A naive extractor surfaces it as a blank record, and that is the defect.",
+    "the /Widget on page 3": "Carries /TU and /Contents, so it defeats a contents-keyed filter.",
+    "both /Link annotations on page 3": "One carries /QuadPoints and /Contents, one carries neither.",
+    "every /Popup": "tests/basic already records that Papers writes one per markup annotation.",
+    "these strings, anywhere in the output, for any item in any family": [
+      "LINK ALT TEXT MUST NOT APPEAR",
+      "WIDGET TOOLTIP MUST NOT APPEAR",
+      "WIDGET CONTENTS MUST NOT APPEAR",
+      "example.org",
+      "a form field value, not a comment"
+    ]
+  },
+  "comparison": "Compared exactly. There are no per-producer expectation files, no overrides and no variant lists: this file states what the document means, so a producer whose file cannot yield it is a finding to document, and a shortfall in our extractor is a bug to fix.",
+  "extractor_options": "No option moves anything in this family. No target contains a ligature, an accent or a hyphen, and each single-quad target sits on its own typeset line, so --keep-ligatures and --keep-hyphens are both inert. That is deliberate: a count read off a string that moved under a flag would be unreadable.",
+  "failure_policy": "A failing item is a tracked defect, in our extractor or in the producer. See PRODUCERS.md for observed producer behaviour. Nothing there relaxes this file. EXPECT THE MOST SKIPS OF ANY FAMILY: replies, review states, FreeText, Ink and Square exist in the UI of very few viewers. A skip is data about the producer; if NO available producer can make an item, it moves to tests/structure and this file loses it.",
+  "order_policy": "No item has an undefined order. Sequence is not asserted at all -- tests/order was dropped in favour of a single best-effort implementation, so nothing in the corpus asserts output sequence.",
+  "silent_pass_risks": "Four, and three of them make an item pass while testing nothing. First, some viewers refuse to place a second highlight over an existing one, or silently extend the first: IN1 then has one annotation and a count of one looks like a correct answer to a question that was never asked. Second, a viewer that rewrites /Annots on save can drop make.py's furniture, after which IN6 passes trivially -- re-run uv run make.py --verify and inspect page 3 of the SAVED file. Third, if a pen tool cannot attach a comment, IN5B becomes clause 3 of emission_rule rather than clause 2 and asserts the opposite of what is written here. Fourth, IN2B's expected subtype is assumed to be /Text; a producer writing anything else fails the PAIRING rather than the assertion, which reads as a missing record.",
+  "status_field": "status, notes, emission_rule, counts and must_not_appear are documentation or pending harness support. The harness deserialises id, page, subtype, covered_text, comment, author and order only, and ignores everything else."
+}

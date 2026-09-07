@@ -1,0 +1,322 @@
+ANNOTATION SCRIPT FOR tests/comments/base.pdf
+=============================================
+
+Purpose
+-------
+One topic: the FIELDS of an annotation as the producer chose to write
+them -- comment text and its encoding, author, dates, colour.
+
+Every item is an ordinary highlight over the SAME plain sentence. What
+varies is what you type or choose in the viewer, not the document. That
+uniformity is deliberate: expected.json is one covered_text repeated,
+so a failure here is unambiguously about the comment field and not
+about text recovery.
+
+Characters under a quad are tests/text. Declared text is
+tests/actualtext. Page attributes are tests/page. How many records come
+out is tests/inventory. Byte sequences no viewer can be asked to emit
+-- PDFDocEncoding, a UTF-8 BOM, embedded NULs, an unpaired surrogate --
+are tests/structure.
+
+base.pdf contains no annotations. Annotate it by hand in each program
+you want to test, then save each result as
+
+    base-<tool>-<version>.pdf        e.g. base-okular-26.04.3.pdf
+
+into producers/.
+
+Assertion versus survey
+-----------------------
+The producer chooses the encoding, the palette and the date format, and
+we do not get a vote. Two different things are being measured here and
+they must not be confused.
+
+THE ASSERTION is round-trip fidelity: whatever encoding a producer
+picks, the text that comes out must equal the text that was typed.
+
+THE SURVEY is which mechanism it picked. That has no right answer and
+belongs in PRODUCERS.md. It is also the only way to find out whether
+PDFDocEncoding -- which sits in tests/structure on the strength of the
+spec alone, with no producer ever observed writing it -- is real.
+
+So for every producer, record this once and put it in PRODUCERS.md:
+
+    python3 -c "import pikepdf; \
+      print([(bytes(a['/Contents'])[:4], str(a.get('/T'))) \
+        for a in pikepdf.open(FILE).pages[0]['/Annots'] \
+        if '/Contents' in a])"
+
+    FE FF      UTF-16BE
+    FF FE      UTF-16LE
+    EF BB BF   a UTF-8 BOM, which is not in the spec
+    anything else -- a single-byte encoding, and WHICH one is the open
+    question: PDFDocEncoding and Latin-1 differ exactly in 0x80-0xAD.
+
+Also worth recording once: whether the tool writes /NM at all. Papers
+does not, and an id scheme that leans on it has nothing to lean on.
+
+Ground rules
+------------
+1. Do not let the tool flatten, optimise, or "print to PDF" the file. That
+   converts annotations into page content and destroys the test.
+2. Check the tool actually writes annotations INTO the PDF. Some readers
+   (Skim, Zotero) keep them in a sidecar by default; find the setting or
+   use a different tool.
+3. Every target phrase ends with a sentinel like [[E1A]]. ALWAYS include
+   the sentinel in the selection. The sentinel is how a test knows which
+   annotation it is looking at, and how it detects text bleeding in from a
+   neighbouring line.
+4. Selections start at the first word given and end at the sentinel's
+   closing brackets, inclusive. Nothing before, nothing after.
+5. Type comments exactly as written, including accents and punctuation.
+   Copy-paste rather than retype.
+6. Note the tool name and version in a file next to the PDF. If the tool
+   has a choice of highlight colour, use yellow unless told otherwise.
+7. COPY-PASTE EVERY COMMENT. Do not retype. A retyped accent, dash,
+   quote or emoji is a different codepoint, and this family cannot tell
+   that apart from a decoding defect -- it would look exactly like the
+   bug it is hunting.
+8. COLOUR IS NOT YELLOW IN CM7. Everywhere else in this family, yellow.
+9. CM6 REQUIRES TWO SAVES. Read its instructions before you start, or
+   you will have to redo it.
+
+The selection, on every item
+----------------------------
+      Type:     Highlight
+      Select:   "a target phrase for this item [[CMnn]]"
+      Comment:  as given per item below.
+
+----------------------------------------------------------------------
+CM1 -- comment text, round trip                                (page 1)
+----------------------------------------------------------------------
+
+Three comments. What comes out must equal what went in.
+
+CM1A   Comment:  (copy this line exactly)
+                 Café, naïve, Größe, Ω, 漢字 — all of this must survive.
+       NOTE:     Latin accents, an eszett, a Greek capital, CJK, and an
+                 em dash. Everything here is in the Basic Multilingual
+                 Plane, so one UTF-16 code unit each.
+
+CM1B   Comment:  Plain ASCII control line.
+       NOTE:     The control. If CM1A fails and CM1B passes, the defect
+                 is in decoding. If both fail, it is not about encoding
+                 at all and the rest of this family will mislead you.
+
+CM1C   Comment:  (copy this line exactly)
+                 Astral plane: 📄 and 𝕏 must both survive.
+       NOTE:     BOTH of those are OUTSIDE the Basic Multilingual
+                 Plane, so each needs a SURROGATE PAIR in UTF-16BE.
+                 That is the point: annotationreport decodes with
+                 String::from_utf16(...).ok(), which is non-lossy, so
+                 one bad surrogate silently drops the ENTIRE comment.
+                 A correctly paired surrogate is perfectly legal and
+                 must decode; the unpaired case cannot be produced by
+                 hand and lives in tests/structure.
+       NOTE:     Some comment fields will refuse these characters, or
+                 replace them with a box. That is a producer finding
+                 worth recording -- but check what actually reached the
+                 file before recording a failure against us.
+
+----------------------------------------------------------------------
+CM2 -- comment shape                                           (page 1)
+----------------------------------------------------------------------
+
+Two paragraphs, nothing at all, and one space. Three different states,
+and a tool that collapses any two of them is losing information.
+
+CM2A   Comment:  (two paragraphs, with a blank line between them)
+
+                 First paragraph of the comment.
+
+                 Second paragraph of the same comment.
+
+       NOTE:     Expected: the paragraph break survives. Stripping
+                 control characters indiscriminately flattens it to one
+                 line, which is what pdfannots2json does -- RemoveNul
+                 maps every unicode.IsControl rune to -1, and that
+                 includes newline and carriage return.
+
+CM2B   Comment:  (none -- leave it entirely empty)
+       NOTE:     Expected: a bare highlight, present in the output with
+                 no comment. Not dropped, and not reported with an
+                 empty comment string where the producer wrote no
+                 /Contents at all. Those are different outputs and
+                 pdfannots separates the two classes deliberately,
+                 because a review workflow depends on the split.
+
+CM2C   Comment:  a single space character, and nothing else
+       NOTE:     Distinct from CM2B: the producer writes /Contents ( ).
+                 Whether that counts as a comment is a POLICY decision
+                 and expected.json states it. Many viewers trim it to
+                 empty on save, which collapses CM2C into CM2B -- check
+                 the file before recording anything:
+
+                   python3 -c "import pikepdf; print([bytes(a['/Contents']) \
+                     for a in pikepdf.open(FILE).pages[0]['/Annots'] \
+                     if '/Contents' in a])"
+
+                 If no annotation holds a single space, the producer
+                 cannot make this item. Skip it with that evidence.
+
+----------------------------------------------------------------------
+CM3 -- characters hostile to the output format                 (page 1)
+----------------------------------------------------------------------
+
+The output is Markdown and JSON. A comment is arbitrary user text and
+may contain either syntax. Neither may leak into the STRUCTURE of the
+output: a comment is data, not markup.
+
+This is not hypothetical for this tool. Inconsistent Markdown
+formatting between single-line and multi-line comments has already
+been a fixed bug, so the emitter is known to be a place where comment
+content and output syntax get confused.
+
+CM3A   Comment:  (copy this line exactly, leading dash included)
+                 - **stars** _underscores_ `backticks` # hash > angle | pipe |
+       NOTE:     Every one of those is Markdown syntax, and the LEADING
+                 "- " is the worst: emitted raw into a Markdown document
+                 it turns the comment into a list item, and if the
+                 comment is already inside a list it changes the
+                 nesting. Expected: the comment reads back character
+                 for character, whatever escaping the emitter needs to
+                 do to achieve that.
+
+CM3B   Comment:  (copy this line exactly, trailing backslash included)
+                 He said "quoted", wrote C:\path\to\file, and left one \
+       NOTE:     Double quote and backslash are the two characters JSON
+                 must escape, and a TRAILING backslash is where naive
+                 escaping breaks: it can consume the closing quote.
+                 Expected: the comment reads back character for
+                 character in both the JSON and the Markdown output.
+
+----------------------------------------------------------------------
+CM4 -- a long comment                                          (page 1)
+----------------------------------------------------------------------
+
+CM4A   Comment:  (copy the whole paragraph, all of it, as one comment)
+                 This comment is deliberately long, because a reader
+                 annotating a paper writes paragraphs and not labels,
+                 and because a fixed buffer or a display truncation is
+                 the kind of defect that only shows up past some
+                 threshold nobody documented. It runs to several
+                 hundred characters and contains ordinary prose with
+                 ordinary punctuation, so that nothing in it can fail
+                 for any of the reasons the other items in this family
+                 are testing. If the output ends early, or ends with an
+                 ellipsis that was never typed, the comment was
+                 truncated somewhere and the place it happened is worth
+                 finding.
+       NOTE:     Expected: every character, with no truncation and no
+                 added ellipsis. Some comment fields have their own
+                 length limit; if the tool will not accept the whole
+                 paragraph, record how much it took and skip the item.
+
+----------------------------------------------------------------------
+CM5 -- author                                                  (page 2)
+----------------------------------------------------------------------
+
+CM5A   Comment:  Author name carries accents.
+       Author:   Renée Léa
+                 Set the author or name field for THIS annotation. If
+                 your tool has one author setting for the whole session,
+                 set it before you start and note that in PRODUCERS.md.
+       NOTE:     Most producers overwrite the author with the system
+                 user name, and Firefox writes no /T at all on any
+                 annotation type. Both are facts about the producer
+                 rather than failures: expected.json accepts ANY value
+                 for every other item's author and asserts it only
+                 here. If the tool cannot set it, record what it wrote
+                 instead and skip.
+
+----------------------------------------------------------------------
+CM6 -- creation time against modification time                 (page 2)
+----------------------------------------------------------------------
+
+CM6A   Comment:  Written first, edited later.
+
+       DO THIS IN TWO PASSES:
+         1. Make the highlight, type the comment above, SAVE, CLOSE.
+         2. Reopen the file, edit the comment to read
+              Written first, edited later. Edited in a second pass.
+            then SAVE again.
+
+       NOTE:     The point is a file in which /CreationDate and /M
+                 differ. Check it before keeping the fixture:
+
+                   python3 -c "import pikepdf; a=[x for x in \
+                     pikepdf.open(FILE).pages[1]['/Annots'] \
+                     if '/Contents' in x][0]; \
+                     print(a.get('/CreationDate'), a.get('/M'))"
+
+                 If they are equal, the tool did not record a creation
+                 date and the item is not testable there. Skip it with
+                 that evidence.
+
+       NOTE:     Which of the two belongs in the output is a POLICY
+                 decision, not a defect. expected.json states the
+                 choice. Record the DATE FORMAT the producer wrote in
+                 PRODUCERS.md -- pdfannots2json accepts three forms and
+                 returns nothing at all on a fourth, so the format is
+                 worth knowing per producer.
+
+----------------------------------------------------------------------
+CM7 -- colour                                                  (page 2)
+----------------------------------------------------------------------
+
+A SURVEY, not an assertion. Most viewers offer a fixed palette and will
+not take an RGB value, so there is nothing to type exactly. Use three
+clearly different colours the tool actually has, and record which.
+Exact bucket boundaries are tests/structure.
+
+CM7A   Comment:  First colour.
+       Type:     Highlight in the tool's FIRST colour.
+
+CM7B   Comment:  Second colour.
+       Type:     Highlight in a SECOND, clearly different colour.
+
+CM7C   Comment:  Third colour.
+       Type:     Highlight in a THIRD, clearly different colour.
+
+       NOTE:     Record the actual values in PRODUCERS.md:
+
+                   python3 -c "import pikepdf; print([(str(a.get('/Contents')), \
+                     list(a['/C'])) for a in pikepdf.open(FILE).pages[1]['/Annots'] \
+                     if '/C' in a])"
+
+                 A four-component /C is CMYK, which some tools write and
+                 some consumers reject; three is RGB; one is grey.
+                 expected.json asserts only that the three come out
+                 DISTINCT and STABLE, because the palette is the tool's.
+
+----------------------------------------------------------------------
+Deliberately not in this family
+----------------------------------------------------------------------
+
+/Subj, the subject line. Acrobat and a couple of others offer a subject
+separate from the comment body, and whether it should be reported,
+merged, or ignored is a real policy question. It is left out because
+only two or three viewers can produce it, and because nothing has yet
+been observed writing one -- the same evidence bar applied to
+tests/page PG16. If tools/survey.py finds /Subj in a real library, it
+comes back.
+
+/CA, opacity, and /BS, border style. Both are display properties with
+no bearing on extracted content.
+
+/NM. Producer-written and not annotator-controllable, so it is an
+observation for PRODUCERS.md rather than an item. It matters anyway:
+tests/inventory IN1 asserts stable distinct ids for two annotations at
+one place, and if no producer writes /NM then that scheme has to be
+derived from something else.
+
+A COMMENT CONTAINING A FAKE SENTINEL, such as the literal text
+[[CM3B]]. Genuinely adversarial -- a comment that looks like fixture
+machinery -- but it risks confusing the harness rather than the
+extractor, which would make the result unreadable. If it is ever wanted
+it belongs in tests/structure, where the harness's own matching is not
+in the loop.
+
+RIGHT-TO-LEFT TEXT. Arabic and Hebrew comments raise bidi questions in
+the OUTPUT rather than in extraction, and there is no correct answer to
+assert until the tool has a position on bidi. Worth revisiting.

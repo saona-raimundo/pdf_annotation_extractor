@@ -1,0 +1,161 @@
+{
+  "fixture": "comments",
+  "source": "base.tex + payloads/",
+  "schema": 3,
+  "provenance": "covered_text is the same selection on all fourteen items, read back from pdftotext on base.pdf. THE COMMENT VALUES ARE READ FROM payloads/*.txt, which are also what ANNOTATIONS.txt tells the annotator to paste -- one source of truth, so the instruction and the expectation cannot drift. CM2C is the single deliberate exception: its payload is a space, which is what gets TYPED, while its expected comment is null, which is what comes out after whitespace_policy trims it. Every other payload equals its expectation character for character, and that identity is worth re-checking after any edit. The payload files deliberately carry no trailing newline, because select-all in an editor would otherwise paste one. No producer file existed when this was written.",
+  "matching": "Match by the [[CMnn]] sentinel in covered_text. Every item has covered text, so none falls back to page, subtype and comment -- which matters here, because CM2B and CM2C are expected to have the SAME comment (none) and could not be told apart by it.",
+  "author_policy": "author is null for every item except CM5A: null means any value passes. Producers commonly overwrite /T with the system user name, and Firefox writes none at all.",
+  "pages_without_annotations": [],
+  "annotations": [
+    {
+      "id": "CM1A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM1A]]",
+      "comment": "Café, naïve, Größe, Ω, 漢字 — all of this must survive.",
+      "author": null,
+      "notes": "Latin accents, an eszett, a Greek capital, CJK and an em dash -- all inside the Basic Multilingual Plane, so one UTF-16 code unit each. THE ASSERTION IS ROUND TRIP, not an encoding: whatever the producer stored this as, it must read back identically. Which encoding it chose is a survey entry for PRODUCERS.md, and the only route to finding out whether PDFDocEncoding, which sits in tests/structure on the spec's word alone, is written by anything real."
+    },
+    {
+      "id": "CM1B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM1B]]",
+      "comment": "Plain ASCII control line.",
+      "author": null,
+      "notes": "The control. CM1A failing while this passes localises the defect to decoding; both failing means it is not about encoding at all and the rest of this family will mislead you."
+    },
+    {
+      "id": "CM1C",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM1C]]",
+      "comment": "Astral plane: 📄 and 𝕏 must both survive.",
+      "author": null,
+      "notes": "BOTH characters are OUTSIDE the Basic Multilingual Plane, so each needs a SURROGATE PAIR in UTF-16BE. annotationreport decodes with String::from_utf16(...).ok(), which is non-lossy, so one bad surrogate silently drops the whole comment; a correctly paired one is legal and must decode. The unpaired case cannot be produced by hand and lives in tests/structure. Nothing else in the corpus goes above U+FFFF."
+    },
+    {
+      "id": "CM2A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM2A]]",
+      "comment": "First paragraph of the comment.\n\nSecond paragraph of the same comment.",
+      "author": null,
+      "notes": "Two paragraphs with a blank line between them. Expected: the break survives. pdfannots2json's RemoveNul maps every unicode.IsControl rune to -1, which includes newline and carriage return, so a multi-paragraph comment arrives flattened to one line."
+    },
+    {
+      "id": "CM2B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM2B]]",
+      "comment": null,
+      "author": null,
+      "notes": "No /Contents at all. Expected: a bare highlight, present with NO comment -- not dropped, and not reported with an empty comment string. pdfannots separates the two classes deliberately because a review workflow depends on the split."
+    },
+    {
+      "id": "CM2C",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM2C]]",
+      "comment": null,
+      "author": null,
+      "notes": "The producer wrote /Contents with a single space. POLICY: whitespace-only /Contents is trimmed to no comment, so CM2C AND CM2B MUST PRODUCE IDENTICAL OUTPUT. That is the assertion -- a space is not a comment, and a reader wants to know whether there was one. The same rule trims leading and trailing whitespace from a comment that does have content. The faithful alternative, preserving the space, is defensible and is the one this corpus takes for ligatures; the difference is that a stray space carries no authorial intent while a declared presentation form does. Many viewers trim it on save, which collapses this item into CM2B before it reaches us -- check the bytes before recording anything."
+    },
+    {
+      "id": "CM3A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM3A]]",
+      "comment": "- **stars** _underscores_ `backticks` # hash > angle | pipe |",
+      "author": null,
+      "notes": "Every character here is Markdown syntax and the LEADING '- ' is the worst of them: emitted raw it turns the comment into a list item, and inside an existing list it changes the nesting. Expected: character for character, whatever escaping the emitter needs. Not hypothetical for this tool -- inconsistent Markdown formatting between single-line and multi-line comments has already been a fixed bug, so the emitter is a known place where content and syntax get confused."
+    },
+    {
+      "id": "CM3B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM3B]]",
+      "comment": "He said \"quoted\", wrote C:\\path\\to\\file, and left one \\",
+      "author": null,
+      "notes": "Double quote and backslash are the two characters JSON must escape, and the TRAILING backslash is where naive escaping breaks by consuming the closing quote. Expected: character for character in BOTH the JSON and the Markdown output."
+    },
+    {
+      "id": "CM4A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM4A]]",
+      "comment": "This comment is deliberately long, because a reader annotating a paper writes paragraphs and not labels, and because a fixed buffer or a display truncation is the kind of defect that only shows up past some threshold nobody documented. It runs to several hundred characters and contains ordinary prose with ordinary punctuation, so that nothing in it can fail for any of the reasons the other items in this family are testing. If the output ends early, or ends with an ellipsis that was never typed, the comment was truncated somewhere and the place it happened is worth finding.",
+      "author": null,
+      "notes": "579 characters of ordinary prose. Readers annotating a paper write paragraphs, and a fixed buffer or a display truncation only shows up past some threshold nobody documented. Expected: every character, with no truncation and no ellipsis that was never typed. Some comment fields have their own length limit; if the tool will not take the whole paragraph, record how much it took and skip."
+    },
+    {
+      "id": "CM5A",
+      "page": 2,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM5A]]",
+      "comment": "Author name carries accents.",
+      "author": "Renée Léa",
+      "notes": "THE ONLY ITEM IN THIS FAMILY THAT ASSERTS AN AUTHOR. Most producers overwrite /T with the system user name and Firefox writes no /T at all on any annotation type; both are producer facts rather than failures, which is why author is null everywhere else. tests/basic E5B is the corpus's other author assertion."
+    },
+    {
+      "id": "CM6A",
+      "page": 2,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM6A]]",
+      "comment": "Written first, edited later. Edited in a second pass.",
+      "author": null,
+      "notes": "Made, saved, closed, reopened and edited, so that /CreationDate and /M differ. The comment expected here is the SECOND-PASS text. Which of the two dates belongs in the output is a POLICY decision, not a defect -- see date_policy. If a producer records no creation date the two are equal and the item is untestable there; skip with that evidence."
+    },
+    {
+      "id": "CM7A",
+      "page": 2,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM7A]]",
+      "comment": "First colour.",
+      "author": null,
+      "notes": "A SURVEY, not an assertion. The palette belongs to the tool, so no colour value is stated. See colour_policy."
+    },
+    {
+      "id": "CM7B",
+      "page": 2,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM7B]]",
+      "comment": "Second colour.",
+      "author": null,
+      "notes": "See CM7A."
+    },
+    {
+      "id": "CM7C",
+      "page": 2,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a target phrase for this item [[CM7C]]",
+      "comment": "Third colour.",
+      "author": null,
+      "notes": "See CM7A."
+    }
+  ],
+  "assertion_and_survey": "The producer chooses the encoding, the palette and the date format, and we get no vote. Two things are measured and must not be confused. THE ASSERTION is round-trip fidelity: whatever mechanism a producer picks, the text that comes out equals the text that was typed. THE SURVEY is which mechanism it picked -- UTF-16BE or a single-byte encoding, RGB or CMYK, which of the three date forms, whether /NM is written at all. The survey has no right answer and belongs in PRODUCERS.md.",
+  "whitespace_policy": "Whitespace-only /Contents is trimmed to no comment, and leading and trailing whitespace is trimmed from a comment that has content. So CM2B and CM2C must produce IDENTICAL output. A DECISION, not a defect: a stray space carries no authorial intent, unlike the declared presentation form in tests/actualtext AT2A which this corpus deliberately preserves. The cross-item assertion -- that two records are identical -- is not expressible in the current harness.",
+  "date_policy": "CM6A is the only item where /CreationDate and /M differ. Which one the output carries is a decision to record, not a defect. Neither is asserted here because neither is knowable in advance: both are set by the producer at annotation time. What is asserted is the second-pass comment text. Record the DATE FORMAT in PRODUCERS.md -- pdfannots2json accepts three forms and returns nothing at all on a fourth.",
+  "colour_policy": "CM7A, CM7B and CM7C assert only that the three come out DISTINCT and STABLE. No value is stated because most viewers offer a fixed palette and will not take an RGB value. Record the actual /C arrays in PRODUCERS.md: four components is CMYK, which some tools write and some consumers reject; three is RGB; one is grey. Exact HSL bucket boundaries are tests/structure.",
+  "comparison": "Compared exactly, character for character. There are no per-producer expectation files, no overrides and no variant lists: this file states what was typed, so a producer that cannot store it is a finding to document and a shortfall in our extractor is a bug to fix.",
+  "extractor_options": "No option moves anything in this family. No covered_text contains a ligature, an accent or a hyphen, so --keep-ligatures and --keep-hyphens are both inert on the TEXT. They must also be inert on the COMMENTS: a comment is data, and a fold applied to it would be applying a text-recovery transform to something no glyph was ever recovered from.",
+  "failure_policy": "A failing item is a tracked defect, in our extractor or in the producer. See PRODUCERS.md for observed producer behaviour. Nothing there relaxes this file.",
+  "order_policy": "No item has an undefined order: fourteen items in reading order down two single-column pages.",
+  "silent_pass_risks": "Four. CM1C's astral characters may be refused or replaced with a box by the comment field itself -- check what reached the file before recording a failure against us. CM2C's single space is trimmed on save by many viewers, which collapses it into CM2B before extraction ever happens. CM4A may exceed a comment field's own length limit. And CM5A's author is overwritten by most producers, so a pass means the tool let you set /T, not that we read it correctly. Each has a check in ANNOTATIONS.txt; run them before recording anything.",
+  "status_field": "status, notes and the policy keys are documentation or pending harness support. The harness deserialises id, page, subtype, covered_text, comment, author and order only, and ignores everything else."
+}

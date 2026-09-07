@@ -1,0 +1,218 @@
+ANNOTATION SCRIPT FOR tests/actualtext/base.pdf
+===============================================
+
+Purpose
+-------
+One topic: /ActualText -- the document's own declaration of what a run
+of glyphs means, which overrides whatever the font's /ToUnicode says
+about those glyphs.
+
+This is the only family where authorial intent is RECOVERABLE rather
+than guessed. Everywhere else an extractor sees a glyph and a
+/ToUnicode entry chosen by the producer's toolchain, and cannot tell a
+typographic ligature from a character the author meant to write.
+/ActualText is the spec's answer, and where it is present it wins.
+
+Glyph-to-character recovery in the ABSENCE of a declaration is
+tests/text. Output sequence is tests/order. Page attributes are
+tests/page. The annotation dictionary is tests/inventory and
+tests/comments. Dictionaries no producer will write are
+tests/structure.
+
+Nothing here needs a generator. /ActualText lives in the content
+stream, put there by the DOCUMENT producer; the annotations over it are
+ordinary highlights.
+
+base.pdf contains no annotations. Annotate it by hand in each program
+you want to test, then save each result as
+
+    base-<tool>-<version>.pdf        e.g. base-okular-26.04.3.pdf
+
+into producers/.
+
+Ground rules
+------------
+1. Do not let the tool flatten, optimise, or "print to PDF" the file. That
+   converts annotations into page content and destroys the test.
+2. Check the tool actually writes annotations INTO the PDF. Some readers
+   (Skim, Zotero) keep them in a sidecar by default; find the setting or
+   use a different tool.
+3. Every target phrase ends with a sentinel like [[E1A]]. ALWAYS include
+   the sentinel in the selection. The sentinel is how a test knows which
+   annotation it is looking at, and how it detects text bleeding in from a
+   neighbouring line.
+4. Selections start at the first word given and end at the sentinel's
+   closing brackets, inclusive. Nothing before, nothing after.
+5. Type comments exactly as written, including accents and punctuation.
+   Copy-paste rather than retype.
+6. Note the tool name and version in a file next to the PDF. If the tool
+   has a choice of highlight colour, use yellow unless told otherwise.
+7. THE SENTINEL IS AT THE START in AT5A and AT5B. Those selections stop
+   inside a tagged span and cannot end with one.
+8. CHECK THE MARKED CONTENT SURVIVED THE SAVE, before anything else. A
+   producer that rewrites or optimises the content stream can strip the
+   declarations and leave a file that looks fine and tests nothing:
+
+     grep -c ActualText FILE          # expect 8
+     grep -cE "/Alt[ (<]" FILE        # expect 1
+
+   If either count has dropped, the whole family is void for that
+   producer. Record it in PRODUCERS.md and skip every item, rather than
+   reporting a run of passes that mean nothing.
+
+A caution on selection. Some viewers select text using their own
+extraction, which may already honour /ActualText. That affects where
+the caret lands and therefore where the quads go, not what is in the
+content stream. Select by what you SEE on the page -- the rendered
+glyphs -- and let the quads fall where they fall.
+
+----------------------------------------------------------------------
+AT1 -- a declaration that decomposes a ligature
+----------------------------------------------------------------------
+
+The two targets render identically. In AT1A the ff is one glyph mapped
+to U+FB00, wrapped in a declaration saying the run means "tariffs" with
+two ordinary letters. In AT1B the same glyph carries no declaration.
+
+AT1A   Type:     Highlight
+       Select:   "the tagged tariffs of the schedule [[AT1A]]"
+       Comment:  Declaration decomposes the ligature.
+
+AT1B   Type:     Highlight
+       Select:   "the untagged tariffs of the schedule [[AT1B]]"
+       Comment:  Control: no declaration, folded by default.
+
+       NOTE:     Under DEFAULT options both come out decomposed and the
+                 pair proves nothing. Under --keep-ligatures they must
+                 DIVERGE: AT1A stays "tariffs" because the declaration
+                 is authoritative, AT1B becomes "tari<U+FB00>s" because
+                 the fold has been turned off. Run the family both ways
+                 or AT1 is dead weight.
+
+----------------------------------------------------------------------
+AT2 -- a declaration that asserts a presentation form
+----------------------------------------------------------------------
+
+The reverse direction, and the case that motivated the decision. The
+glyphs here decompose on their own; the document declares the
+presentation form anyway.
+
+AT2A   Type:     Highlight
+       Select:   "a declared fixed point in the mapping [[AT2A]]"
+       Comment:  Declaration asserts U+FB01.
+
+       NOTE:     Expected: U+FB01 SURVIVES, under both settings. This
+                 is a document that means the presentation form -- a
+                 Unicode reference, a typography paper, an example in a
+                 spec. Folding it away is destroying the author's text
+                 to satisfy a default that exists for the opposite
+                 case. If AT2A folds, the fold is running in the wrong
+                 layer: after the declaration rather than before it.
+
+----------------------------------------------------------------------
+AT3 -- declared text of a different length
+----------------------------------------------------------------------
+
+One glyph standing for many characters, and many glyphs standing for
+one. Both directions, because a length assumption breaks only one way
+and a tool that keeps character offsets against glyph positions will
+drift from here on.
+
+AT3A   Type:     Highlight
+       Select:   "the § on rounding conventions [[AT3A]]"
+       Comment:  One glyph, seven characters.
+       Expect:   "the Section on rounding conventions [[AT3A]]".
+
+AT3B   Type:     Highlight
+       Select:   "the (TM) mark on the product name [[AT3B]]"
+       Comment:  Four glyphs, one character.
+       Expect:   "the ™ mark on the product name [[AT3B]]", with U+2122.
+
+----------------------------------------------------------------------
+AT4 -- a hyphen declared to mean nothing
+----------------------------------------------------------------------
+
+The break is inside one word and its hyphen carries an EMPTY
+declaration: the document is saying that glyph stands for no character
+at all.
+
+AT4A   Type:     Highlight
+       Select:   the WHOLE block, "the surrounding infra-" through
+                 "[[AT4A]]", in ONE selection across both lines.
+       Comment:  Hyphen declared to mean nothing.
+
+       NOTE:     Expected: "infrastructure", joined, under BOTH hyphen
+                 settings -- including --keep-hyphens. Compare
+                 tests/text TX4, where nothing in the PDF distinguishes
+                 a discretionary hyphen from a compound one and no
+                 setting makes both targets right. Here the producer
+                 has declared its intent, so the ambiguity is gone.
+                 That is the finding: TX4's ambiguity is a property of
+                 UNTAGGED PDFs, not of PDF.
+
+----------------------------------------------------------------------
+AT5 -- a selection that covers part of a tagged span
+----------------------------------------------------------------------
+
+"the third figure" is one span declared to mean "Figure 3". A quad
+covering part of it cannot be told which part of "Figure 3"
+corresponds: the declaration is about the run as a whole.
+
+AT5A   Type:     Highlight
+       Select:   START at "[[AT5A]]" and END inside the span, after
+                 "fig": "[[AT5A]] see the third fig"
+       Comment:  Majority of the span covered.
+       Expect:   "[[AT5A]] see Figure 3" -- the whole declaration.
+
+AT5B   Type:     Highlight
+       Select:   START at "[[AT5B]]" and END inside the span, after the
+                 first word: "[[AT5B]] consult"
+       Comment:  Minority of the span covered.
+       Expect:   "[[AT5B]] consult" -- the declaration omitted.
+
+       NOTE:     The sentinel is at the START of both.
+
+       NOTE:     DECISION, not a defect. The rule is the one in
+                 tests/text TX3C lifted a level: a declared span is
+                 atomic, so it is emitted whole when the quad covers a
+                 majority of its advance and omitted entirely when it
+                 does not. Falling back to per-glyph /ToUnicode for the
+                 covered part is the tempting third option and is
+                 wrong: the producer has said those glyphs do not stand
+                 for themselves. expected.json records the choice; what
+                 matters is that it is stated and stable.
+
+----------------------------------------------------------------------
+AT6 -- an alternate description, not a replacement        (page 1)
+----------------------------------------------------------------------
+
+/Alt describes a thing for a reader who cannot see it. /ActualText
+replaces it. They are different keys with different meanings and a tool
+that substitutes /Alt has invented text that is not in the document.
+
+AT6A   Type:     Highlight
+       Select:   "the described phrase in this sentence [[AT6A]]"
+       Comment:  /Alt must not be substituted.
+       Expect:   "the described phrase in this sentence [[AT6A]]".
+                 The string "ALT MUST NOT APPEAR" must not appear in
+                 the output anywhere, for any item.
+
+----------------------------------------------------------------------
+AT7 -- a tagged span across a line break                 (page 2)
+----------------------------------------------------------------------
+
+One declaration, two quads. The rendered span "third figure of the set"
+is broken across two lines and declared to mean "Figure 3".
+
+AT7A   Type:     Highlight
+       Select:   the WHOLE block, "the third figure" through
+                 "[[AT7A]]", in ONE selection across both lines.
+       Comment:  One declaration, two quads.
+       Expect:   "the Figure 3 is cited here [[AT7A]]" -- the declared
+                 text ONCE.
+
+       NOTE:     The two failure modes are opposite and both plausible.
+                 Emitting "Figure 3" twice means the declaration was
+                 applied per quad rather than per span. Emitting it not
+                 at all, or as raw glyphs, means the span was dropped
+                 for crossing a quad boundary.

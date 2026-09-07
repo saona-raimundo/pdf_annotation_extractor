@@ -1,0 +1,185 @@
+% =====================================================================
+% Annotation-extraction fixture: INVENTORY
+%
+%   pdflatex base.tex && uv run make.py
+%
+% TOPIC: which entries in /Annots become records, and HOW MANY. The
+% assertions here are COUNTS and PRESENCE, not strings. An annotation
+% silently dropped, silently duplicated, or reported when it should not
+% be is what this family catches.
+%
+% Comments are specified only so that each record can be told apart.
+% Their text is not under test -- that is tests/comments -- and no
+% target here contains a ligature, an accent or a hyphen, so nothing
+% can fail for a reason belonging to tests/text.
+%
+% Not here: characters under a quad (tests/text), declared text
+% (tests/actualtext), page attributes (tests/page), field CONTENT
+% (tests/comments), dictionaries no producer writes (tests/structure).
+%
+% ---------------------------------------------------------------------
+% WHAT GOES IN /Annots, AND WHAT AN EXTRACTOR SHOULD DO WITH IT
+%
+% Four groups, and the family is organised around them:
+%
+%   1. TEXT MARKUP -- Highlight, Underline, StrikeOut, Squiggly. Quads,
+%      a comment, and an obvious record. IN4 counts all four, because a
+%      subtype table that stops early drops the rest with no warning.
+%
+%   2. OTHER READER ANNOTATIONS -- FreeText, Ink, Square. A reader can
+%      create all three, they carry a comment, and they have NO quads.
+%      Whether each becomes a record is a POLICY decision, and IN5 is
+%      where it gets written down.
+%
+%   3. REPLIES AND STATES -- /IRT children, with or without /Contents.
+%      IN2 and IN3.
+%
+%   4. DOCUMENT FURNITURE -- /Link, /Widget, /Popup. Nobody creates
+%      these as annotations; they belong to the file. They must NEVER
+%      become records. IN6 and IN7.
+%
+% /Link is the one the corpus has been quietly avoiding. Every base.tex
+% here excludes hyperref precisely so that /Link annotations do not
+% appear -- which means nothing anywhere tested that we filter them. A
+% hyperref'd paper carries a /Link for every citation, cross-reference,
+% URL and contents entry: hundreds per paper.
+%
+% But the question is NOT whether a tool remembers to exclude /Link.
+% Excluding it by subtype is the obvious move and annotationreport
+% already does exactly that. What IN6 tests is WHICH KEY THE FILTER IS
+% ON, because two natural implementations leak:
+%
+%   "emit anything with /Contents"    /Contents is in the COMMON
+%       annotation dictionary (ISO 32000-1 Table 168), legal on every
+%       subtype, and used for alt text. Leaks links and widgets.
+%
+%   "emit anything with /QuadPoints"  /QuadPoints is legal on a LINK
+%       annotation (Table 173). Leaks links.
+%
+% Three cases in this family are not about filtering at all: the file
+% legitimately contains something that LOOKS like a record. A /Popup
+% whose parent copied the comment into it holds that comment twice
+% (IN7). An /IRT reply is a full /Text annotation with its own
+% /Contents and nothing marks it subordinate (IN2). A review state is
+% an /IRT child with /State and an EMPTY /Contents (IN3).
+%
+% And on the other side, forgetting: an allowlist fails silently and
+% closed, a denylist fails loudly and open. pdfannots2json's
+% GetAnnotationType returns Unsupported for anything outside
+% Highlight/StrikeOut/Underline/Square/Text, so a Squiggly vanishes
+% with no warning. That is IN4, and it is the strongest single
+% justification in the family.
+% ---------------------------------------------------------------------
+%
+% make.py adds the furniture, built to defeat both filter styles above
+% and to bracket them, so that a leak says which key the filter is on:
+%
+%   /Widget   a text field, carrying /TU and /Contents
+%   /Link     a /URI action, carrying /QuadPoints AND /Contents
+%   /Link     a /GoTo destination, carrying neither -- the trivially
+%             excludable control
+%
+% hyperref would give us \href and \TextField, but it would also
+% scatter /Link annotations across every page and over the section
+% headings, which would make the counts in IN1 to IN5 uncontrolled.
+% Adding three objects to one page afterwards keeps them countable.
+%
+% Contains NO reader annotations. Annotate base.pdf by hand in each
+% program following ANNOTATIONS.txt, and save as
+% base-<tool>-<version>.pdf.
+%
+% EXPECT SKIPS, more than in any other family. Reply threads and review
+% states exist in the UI of very few viewers, and FreeText, Ink and
+% Square in not many more. An item no tool can produce belongs in
+% skips.json with evidence; if NO available producer can make it, the
+% case moves to tests/structure and this file loses it.
+%
+% Deliberate choices, following tests/basic/base.tex: no hyperref (see
+% above), uncompressed, one sentinel [[INnn]] per target -- EXCEPT the
+% IN1 line, which deliberately has none. See the note there.
+% =====================================================================
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=3cm]{geometry}
+
+\input glyphtounicode
+\pdfgentounicode=1
+
+\pdfcompresslevel=0
+\pdfobjcompresslevel=0
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+\begin{document}
+
+\section*{IN1 --- two annotations over the same words}
+
+% NO SENTINEL ON THE NEXT LINE, and that is deliberate. Both highlights
+% cover the same words, so they would carry the same sentinel, and the
+% harness matches on sentinels and fails any annotation carrying one
+% that is not its own. With no sentinel the pair is matched by comment
+% instead, which is what tests/basic E5C already does for sticky notes.
+Two highlights are made over this one target phrase, one after the
+other, at the same place.
+
+\section*{IN2 --- a reply to an annotation}
+
+A remark is made on this target phrase [[IN2A]] and then replied to
+using the viewer's own reply function.
+
+\section*{IN3 --- a review state on an annotation}
+
+A remark is made on this target phrase [[IN3A]] and then marked
+accepted using the viewer's own review function.
+
+\section*{IN4 --- the four text markup subtypes}
+
+One squiggly on this target phrase [[IN4A]], one strikeout on this
+other target phrase [[IN4B]], and one underline on this third target
+phrase [[IN4C]].
+
+\clearpage
+\section*{IN5 --- reader annotations that are not text markup}
+
+Three annotation types a reader can create that carry a comment and
+have no quads. Each goes in the blank space below its own paragraph, not
+over any text.
+
+A typewriter or text-box annotation goes in the space beneath this
+paragraph.
+
+\vspace{60pt}
+
+A freehand or ink annotation goes in the space beneath this paragraph.
+
+\vspace{60pt}
+
+A rectangle or square annotation goes in the space beneath this
+paragraph.
+
+\vspace{60pt}
+
+\clearpage
+\section*{IN6 --- document furniture that must not be reported}
+
+A highlight on this target phrase [[IN6A]] shares its page with a form
+field and two links, all added by make.py. The two link targets are on
+their own lines below, in \mbox{} so that make.py can always find each
+phrase whole on one line.
+
+\mbox{The first link covers see the reference and nothing else.}
+
+\mbox{The second link covers go back to page one and nothing else.}
+
+\section*{IN7 --- a popup left open}
+
+A highlight on this target phrase [[IN7A]] whose popup window is left
+open when the file is saved.
+
+\end{document}

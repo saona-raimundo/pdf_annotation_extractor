@@ -1,0 +1,331 @@
+ANNOTATION SCRIPT FOR tests/inventory/base.pdf
+==============================================
+
+Purpose
+-------
+One topic: which entries in /Annots become records, and HOW MANY.
+
+The assertions in this family are COUNTS and PRESENCE, not strings. An
+annotation silently dropped, silently duplicated, or reported when it
+should not be is what this catches. Comments are given below only so
+that each record can be told apart; their text is not under test -- that
+is tests/comments -- and no target here contains a ligature, an accent
+or a hyphen, so nothing can fail for a reason belonging to tests/text.
+
+Characters under a quad are tests/text. Declared text is
+tests/actualtext. Page attributes are tests/page. Field content is
+tests/comments. Dictionaries no producer will write are
+tests/structure.
+
+Build first -- base.pdf is not committed straight from pdflatex:
+
+    pdflatex base.tex && uv run make.py
+
+make.py adds the DOCUMENT FURNITURE: one /Widget form field and two
+/Link annotations. Nobody creates those with an annotation tool -- they
+belong to the file -- and they have to be present before you start,
+because IN6 asserts that none of them becomes a record. Skipping
+make.py silently removes IN6's reason to exist.
+
+    uv run make.py            add the furniture and verify it
+    uv run make.py --verify   verify only, change nothing
+
+Save each annotated result as
+
+    base-<tool>-<version>.pdf        e.g. base-okular-26.04.3.pdf
+
+into producers/.
+
+Ground rules
+------------
+1. Do not let the tool flatten, optimise, or "print to PDF" the file. That
+   converts annotations into page content and destroys the test.
+2. Check the tool actually writes annotations INTO the PDF. Some readers
+   (Skim, Zotero) keep them in a sidecar by default; find the setting or
+   use a different tool.
+3. Every target phrase ends with a sentinel like [[E1A]]. ALWAYS include
+   the sentinel in the selection. The sentinel is how a test knows which
+   annotation it is looking at, and how it detects text bleeding in from a
+   neighbouring line.
+4. Selections start at the first word given and end at the sentinel's
+   closing brackets, inclusive. Nothing before, nothing after.
+5. Type comments exactly as written, including accents and punctuation.
+   Copy-paste rather than retype.
+6. Note the tool name and version in a file next to the PDF. If the tool
+   has a choice of highlight colour, use yellow unless told otherwise.
+7. THE IN1 LINE HAS NO SENTINEL, and that is deliberate. Both
+   highlights cover the same words, so they would carry the same
+   sentinel, and the harness fails any annotation carrying a sentinel
+   that is not its own. The pair is matched by COMMENT instead, exactly
+   as tests/basic E5C is for sticky notes. Type IN1's two comments
+   exactly or the two records cannot be told apart.
+8. EXPECT SKIPS, more than in any other family. Reply threads and
+   review states exist in the UI of very few viewers, and FreeText, Ink
+   and Square in not many more. An item no tool can produce belongs in
+   skips.json with evidence. If NO available producer can make it, the
+   case moves to tests/structure and this file loses it -- that is the
+   escalation path, not a reason to keep a hand item nobody can make.
+
+What is in /Annots, and what should happen to it
+------------------------------------------------
+Four groups, and the family is organised around them:
+
+  1. TEXT MARKUP -- Highlight, Underline, StrikeOut, Squiggly. Quads, a
+     comment, an obvious record. IN4 counts all four.
+
+  2. OTHER READER ANNOTATIONS -- FreeText, Ink, Square. A reader can
+     create all three, they carry a comment, and they have NO quads.
+     Whether each becomes a record is a POLICY decision. IN5.
+
+  3. REPLIES AND STATES -- /IRT children, with or without /Contents.
+     IN2 and IN3.
+
+  4. DOCUMENT FURNITURE -- /Link, /Widget, /Popup. Nobody creates these
+     as annotations. They must NEVER become records. IN6 and IN7.
+
+----------------------------------------------------------------------
+IN1 -- two annotations over the same words                     (page 1)
+----------------------------------------------------------------------
+
+Two separate highlights over exactly the same phrase. Ordinary to do by
+accident and by design, and the question is whether both survive with
+distinct, stable ids.
+
+IN1A   Type:     Highlight
+       Select:   "this one target phrase"
+                 -- in the sentence beginning "Two highlights are made".
+       Comment:  First of two at the same place.
+
+IN1B   Type:     Highlight
+       Select:   the SAME phrase again -- a second, separate highlight
+                 over exactly the same words.
+       Comment:  Second of two at the same place.
+
+       NOTE:     There is no sentinel on this line. See ground rule 6.
+
+       NOTE:     Expected: TWO records with stable, distinct ids. One
+                 record means the producer merged them or we dropped
+                 one; two records colliding on id means the id scheme
+                 is derived from coordinates alone.
+
+       NOTE:     Some viewers refuse to place a second highlight over an
+                 existing one, or silently extend the first instead of
+                 creating a second. Check before saving:
+
+                   python3 -c "import pikepdf; print(len([a for a in \
+                     pikepdf.open(FILE).pages[0]['/Annots'] \
+                     if str(a.get('/Subtype'))=='/Highlight']))"
+
+                 If the count is lower than you expect, the producer
+                 cannot make this item. Record it and skip.
+
+----------------------------------------------------------------------
+IN2 -- a reply to an annotation                                (page 1)
+----------------------------------------------------------------------
+
+IN2A   Type:     Highlight
+       Select:   "this target phrase [[IN2A]]"
+       Comment:  The original remark.
+
+IN2B   Use the viewer's REPLY function on IN2A. Not a second annotation
+       placed nearby -- a reply, so that the producer writes /IRT.
+       Comment:  The reply to it.
+
+       NOTE:     Many viewers have no reply function. Skip with
+                 evidence if so. Current behaviour, per the README, is
+                 that a reply appears as a separate top-level record;
+                 this item pins that so a change is deliberate rather
+                 than accidental.
+
+----------------------------------------------------------------------
+IN3 -- a review state on an annotation                         (page 1)
+----------------------------------------------------------------------
+
+IN3A   Type:     Highlight
+       Select:   "this target phrase [[IN3A]]"
+       Comment:  Marked accepted.
+
+IN3B   Use the viewer's REVIEW or SET STATUS function on IN3A and set
+       it to Accepted. Type NO comment at all.
+       Comment:  (none -- leave it entirely empty)
+
+       NOTE:     Acrobat writes this as a child annotation with /State,
+                 /StateModel and an EMPTY /Contents. Expected: it does
+                 not surface as a blank record. Very few viewers can do
+                 this; skip with evidence.
+
+----------------------------------------------------------------------
+IN4 -- the four text markup subtypes                           (page 1)
+----------------------------------------------------------------------
+
+Highlight is exercised in every other family. The other three are here,
+together, because a subtype table that stops early drops the rest with
+no warning at all -- and the assertion is a COUNT, so a pass on one
+proves nothing about the others.
+
+IN4A   Type:     Squiggly / wavy underline
+       Select:   "this target phrase [[IN4A]]"
+       Comment:  Squiggly.
+
+IN4B   Type:     Strikeout / strike through
+       Select:   "this other target phrase [[IN4B]]"
+       Comment:  Strikeout.
+
+IN4C   Type:     Underline
+       Select:   "this third target phrase [[IN4C]]"
+       Comment:  Underline.
+
+       NOTE:     Expected: THREE records from this section. If the tool
+                 lacks one of the three, skip that item -- and note in
+                 PRODUCERS.md that the remaining two no longer prove
+                 the subtype table is complete.
+
+----------------------------------------------------------------------
+IN5 -- reader annotations that are not text markup             (page 2)
+----------------------------------------------------------------------
+
+Three types a reader can create that carry a comment and have NO quads.
+Place each in the blank space beneath its own paragraph, NOT over any
+text -- if a quad-less annotation happens to sit over words, a tool
+that falls back to the /Rect will appear to work for the wrong reason.
+
+IN5A   Type:     Typewriter / text box / FreeText
+       Place:    in the blank space beneath the paragraph that mentions
+                 a typewriter or text-box annotation.
+       Comment:  Free text box.
+       NOTE:     A FreeText annotation's text is usually its /Contents,
+                 drawn on the page rather than in a popup. Whether it
+                 becomes a record is a policy decision; expected.json
+                 states the choice.
+
+IN5B   Type:     Freehand / ink / pen
+       Place:    a short scribble in the blank space beneath the
+                 paragraph that mentions a freehand annotation. Then add
+                 a comment to it if the tool allows one.
+       Comment:  Ink scribble.
+       NOTE:     Most desktop viewers' pen tool takes no comment at
+                 all. If yours does not, make the scribble anyway and
+                 record that the comment could not be set: an Ink
+                 annotation with no /Contents is itself the question --
+                 does it become an empty record?
+
+IN5C   Type:     Rectangle / square / box
+       Place:    in the blank space beneath the paragraph that mentions
+                 a rectangle annotation.
+       Comment:  Square region.
+       NOTE:     pdfannots2json supports /Square explicitly, which is
+                 why it is here rather than in the excluded list below.
+
+----------------------------------------------------------------------
+IN6 -- document furniture that must not be reported            (page 3)
+----------------------------------------------------------------------
+
+Every base.tex in this corpus excludes hyperref precisely so that /Link
+annotations do not appear -- which means nothing anywhere tested that we
+filter them. A hyperref'd paper carries a /Link for every citation,
+cross-reference, URL and contents entry: hundreds per paper.
+
+The question is NOT whether a tool remembers to exclude /Link. Excluding
+it by subtype is the obvious move and annotationreport already does
+exactly that. What this section tests is WHICH KEY THE FILTER IS ON,
+because two natural implementations leak:
+
+    "emit anything with /Contents"     -- /Contents is in the COMMON
+        annotation dictionary (ISO 32000-1 Table 168), legal on every
+        subtype, and used for alt text. Leaks links and widgets.
+
+    "emit anything with /QuadPoints"   -- /QuadPoints is legal on a
+        LINK annotation (Table 173). Leaks links.
+
+So the furniture is built to defeat both, and the three objects bracket
+the two filter styles. A tool that leaks one and not another tells you
+which key it is keyed on:
+
+    /Widget   text field in the right margin, level with IN6A.
+              Carries /TU and /Contents.
+    /Link     /URI action over "see the reference".
+              Carries /QuadPoints AND /Contents.
+    /Link     /GoTo destination over "go back to page one".
+              Carries neither -- the trivially excludable control.
+
+IN6A   Type:     Highlight
+       Select:   "this target phrase [[IN6A]]"
+       Comment:  Shares a page with furniture.
+
+       NOTE:     Do not type in the form field. Do not click either
+                 link. Do not select any of the three.
+
+       NOTE:     Expected: exactly ONE record from this page. Neither
+                 link, and not the field, may appear. None of these
+                 strings may occur anywhere in the output, for any item
+                 in any family:
+
+                     LINK ALT TEXT MUST NOT APPEAR
+                     WIDGET TOOLTIP MUST NOT APPEAR
+                     WIDGET CONTENTS MUST NOT APPEAR
+                     example.org
+
+                 That is a cheaper assertion than this item and worth
+                 making in the harness directly.
+
+       NOTE:     Both links carry a real action, because a tool that
+                 filters on the presence of /A rather than on /Subtype
+                 would pass a bare /Link and fail these two.
+
+       NOTE:     If exactly the /URI link leaks and the /GoTo one does
+                 not, the filter is keyed on /QuadPoints or /Contents
+                 rather than /Subtype. That distinction is the point of
+                 the section and it is why the two links are built
+                 differently.
+
+       NOTE:     Check the furniture survived the save. A viewer that
+                 rewrites /Annots can drop it, and then IN6 passes
+                 while testing nothing:
+
+                   uv run make.py --verify   # on base.pdf
+                   python3 -c "import pikepdf; print(sorted(str(a.get('/Subtype')) \
+                     for a in pikepdf.open(FILE).pages[2]['/Annots']))"
+
+                 The second command should list /Link twice, /Widget
+                 once, plus your highlight and its popup.
+
+----------------------------------------------------------------------
+IN7 -- a popup left open                                       (page 3)
+----------------------------------------------------------------------
+
+IN7A   Type:     Highlight
+       Select:   "this target phrase [[IN7A]]"
+       Comment:  Popup left open on save.
+
+       NOTE:     Before saving, open this annotation's popup window and
+                 LEAVE IT OPEN. Some producers then write /Open true and
+                 copy the comment into the /Popup dictionary as well, at
+                 which point a tool that does not filter by subtype
+                 emits the comment twice.
+
+       NOTE:     Expected: ONE record. tests/basic already records that
+                 Papers writes a /Popup for every markup annotation, so
+                 the popup itself is not news; what this item adds is a
+                 popup that a producer might have filled in.
+
+----------------------------------------------------------------------
+Deliberately not in this family
+----------------------------------------------------------------------
+
+/F FLAGS. An annotation with the Hidden or NoView flag set is a real
+inventory question -- should it be reported? -- but the flag is set by
+a tool that has no annotation UI for it, so it cannot be produced by
+hand. It belongs in tests/structure.
+
+DUPLICATE OBJECT REFERENCES. The same annotation object appearing twice
+in one /Annots array, or in two pages' arrays. Pathological, not
+producible by hand, tests/structure.
+
+OFF-PAGE RECTS. An annotation whose /Rect falls outside the page box.
+tests/structure.
+
+SUBTYPES NO READING WORKFLOW PRODUCES. Stamp, FileAttachment, Sound,
+Movie, Screen, Caret, Redact, Polygon, PolyLine, Line. All legal, none
+of them something a person makes while reading a paper. If one turns up
+in a real file, tools/survey.py is the place to notice it and this list
+is the place to revisit.

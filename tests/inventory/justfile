@@ -1,0 +1,13 @@
+set shell := ['nu', '-c']
+
+
+# List available commands by default
+default:
+    @just --list --list-prefix "··· "
+
+# Build PDF
+build:
+    pdflatex base.tex
+    uv run --with 'pypdf' make.py
+    rm base.aux
+    rm base.log

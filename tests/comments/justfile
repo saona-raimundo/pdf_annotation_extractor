@@ -1,0 +1,12 @@
+set shell := ['nu', '-c']
+
+
+# List available commands by default
+default:
+    @just --list --list-prefix "··· "
+
+# Build PDF
+build:
+    pdflatex base.tex
+    rm base.aux
+    rm base.log

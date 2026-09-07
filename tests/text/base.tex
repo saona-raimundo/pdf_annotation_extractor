@@ -1,0 +1,140 @@
+% =====================================================================
+% Annotation-extraction fixture: TEXT
+%
+%   pdflatex base.tex        (one run is enough; no aux dependencies)
+%
+% TOPIC: the string recovered from ONE annotation's quads -- which
+% glyphs a quad claims, and which characters those glyphs become.
+%
+% Not here: the ORDER in which annotations or quads come out
+% (tests/order), page attributes (tests/page), what the producer wrote
+% into the annotation dictionary (tests/inventory, tests/comments), or
+% dictionaries no producer will write (tests/structure).
+%
+% Also not here, because tests/basic already covers them and basic is
+% frozen rather than retired: a highlight wrapping across three lines
+% (E2A) and inline mathematics (E3). If basic is ever retired, both
+% belong in this family and it is incomplete without them.
+%
+% Contains NO annotations. Annotate base.pdf by hand in each program
+% following ANNOTATIONS.txt, and save as base-<tool>-<version>.pdf.
+%
+% Deliberate choices, following tests/basic/base.tex:
+%
+%   * no hyperref -- it would add /Link annotations to /Annots
+%   * uncompressed -- /Annots inspectable with grep
+%
+%   * \pdfgentounicode=1, so fi/ffi/ffl map back to their letters, AS IN
+%     basic. TX1 then OVERRIDES the ff ligature alone to the Unicode
+%     presentation form U+FB00, so that one document carries both:
+%         ff words -> a single U+FB00 codepoint   (TX1A, TX1B, TX1C)
+%         fi words -> decomposed "fi"             (TX1C control)
+%     The presentation form is what provokes ligature/space defects in
+%     tools that rewrite U+FB0x with a pattern that also eats trailing
+%     whitespace. Without the override the case cannot fire at all,
+%     because the presentation form never reaches the extracted text.
+%     Verify after any font change:
+%         pdftotext base.pdf - | grep -c $'\ufb00'      # expect 5: 4 in TX1, 1 in TX3C
+%
+%   * \lineskiplimit=-100pt inside the TX2 box. Without it TeX silently
+%     substitutes \lineskip once the boxes are taller than the
+%     requested baseline, and the block is not tight at all -- 11.9pt
+%     instead of the 8pt asked for, with no warning. Verify:
+%         pdftotext -bbox base.pdf - | grep 'TX2'
+%     The four rows should be 8pt apart against 9.6pt-tall word boxes.
+%
+%   * every target carries a unique sentinel [[TXnn]], at the END of the
+%     selection as in basic -- EXCEPT in TX3A and TX3C, whose selections
+%     stop inside a word and so cannot end with one; there the sentinel
+%     is at the START.
+%
+%   * TX3C's "payoff" carries the same ff ligature as TX1, on purpose.
+%     A quad edge that genuinely falls INSIDE a glyph is only reachable
+%     by hand through a ligature: everywhere else a selection snaps to a
+%     character boundary, which is a boundary between glyphs too.
+% =====================================================================
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=3cm]{geometry}
+
+\input glyphtounicode
+\pdfgentounicode=1
+\pdfglyphtounicode{ff}{FB00}   % see header note
+
+\pdfcompresslevel=0
+\pdfobjcompresslevel=0
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+
+\begin{document}
+
+\section*{TX1 --- ligature at a real word boundary}
+
+Each target ends in a word whose final glyph is one ligature character
+followed by a genuine space. A rewrite that eats the space along with
+the ligature closes that gap.
+
+The schedule raises the marginal tariff [[TX1A]] on every tranche.
+
+We apply a tariff on imported staff [[TX1B]] costs.
+
+A control: the fixed offer [[TX1C]] is settled first.
+
+\section*{TX2 --- adjacent lines, tight leading}
+
+Four lines eight points apart, so each line's glyphs reach into its
+neighbours'. Only the middle two are annotated.
+
+\parbox{0.9\textwidth}{\baselineskip=8pt \lineskiplimit=-100pt
+\lineskip=0pt \raggedright
+the line above the target, which must never be captured [[TX2X]]\\
+the target line itself, selected on its own [[TX2A]]\\
+the line below the target, also selected on its own [[TX2B]]\\
+the line below that, which must never be captured [[TX2Y]]%
+}
+
+\section*{TX3 --- quad edges inside a word}
+
+Each selection stops or starts mid-word, so the quad edge falls between
+two glyphs of one word and, in most producers, of one text-showing
+operator.
+
+[[TX3A]] a persistent leverage premium on the residual variance
+
+the marginal contribution [[TX3B]] to total active risk
+
+TX3C is the exception: its edge falls inside one glyph, stopping
+between the halves of a two-f ligature, which is one indivisible glyph.
+
+[[TX3C]] the annual payoff schedule for the year
+
+\section*{TX4 --- hyphenated line breaks}
+
+One break falls inside a word, the other on a compound hyphen that
+belongs to the text. Nothing in the PDF tells them apart.
+
+\parbox{0.9\textwidth}{\raggedright
+the surrounding infra-\linebreak structure of the market [[TX4A]]%
+}
+
+\parbox{0.9\textwidth}{\raggedright
+a memory-\linebreak mapped representation of the file [[TX4B]]%
+}
+
+\section*{TX5 --- non-ASCII in the covered text}
+
+Accents, dashes and quotation marks in the DOCUMENT, decoded through
+the font's /ToUnicode -- a separate path from the comment decoding in
+tests/comments, sharing none of its code.
+
+the Größe of a café --- naïve, précis, Ångström [[TX5A]]
+
+the ``efficient'' frontier's edge -- a co-operative fixed point [[TX5B]]
+
+\end{document}

@@ -1,0 +1,118 @@
+% =====================================================================
+% Annotation-extraction fixture: COMMENTS
+%
+%   pdflatex base.tex        (one run is enough; no aux dependencies)
+%
+% TOPIC: the FIELDS of an annotation as the producer chose to write
+% them -- comment text and its encoding, author, dates, colour. Every
+% item is an ordinary highlight over plain text. What varies is what
+% gets typed or chosen in the viewer, not the document.
+%
+% Not here: characters under a quad (tests/text), declared text
+% (tests/actualtext), page attributes (tests/page), how many records
+% come out (tests/inventory), byte sequences no viewer can be asked to
+% emit -- PDFDocEncoding, a UTF-8 BOM, embedded NULs, an UNPAIRED
+% surrogate -- which are tests/structure.
+%
+% ---------------------------------------------------------------------
+% ASSERTION VERSUS SURVEY
+%
+% The producer chooses the encoding, the palette and the date format,
+% and we do not get a vote. So two different things are being measured
+% and they must not be confused:
+%
+%   THE ASSERTION is round-trip fidelity. Whatever encoding a producer
+%   picks, the text that comes out must equal the text that was typed.
+%   That is testable and every item states it.
+%
+%   THE SURVEY is which mechanism the producer picked -- UTF-16BE or a
+%   single-byte encoding, RGB or CMYK, which of the three date forms.
+%   That has no right answer and belongs in PRODUCERS.md. It is also
+%   the only way to find out whether PDFDocEncoding, which sits in
+%   tests/structure on the strength of the spec alone, is written by
+%   anything real.
+% ---------------------------------------------------------------------
+%
+% EVERY TARGET IS THE SAME SENTENCE, as in tests/page, so that
+% expected.json is one covered_text repeated and a failure is
+% unambiguously about the comment field rather than about text
+% recovery. No target contains a ligature, an accent or a hyphen.
+%
+% Contains NO annotations. Annotate base.pdf by hand in each program
+% following ANNOTATIONS.txt, and save as base-<tool>-<version>.pdf.
+%
+% Deliberate choices, following tests/basic/base.tex: no hyperref,
+% uncompressed, one sentinel [[CMnn]] per target.
+% =====================================================================
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[margin=3cm]{geometry}
+
+\input glyphtounicode
+\pdfgentounicode=1
+
+\pdfcompresslevel=0
+\pdfobjcompresslevel=0
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+% One target. Identical on every item except the sentinel.
+\newcommand{\target}[1]{a target phrase for this item [[#1]]\par}
+
+\begin{document}
+
+\section*{CM1 --- comment text, round trip}
+
+Three comments to type. What comes out must equal what went in,
+whatever encoding the producer chose to store it in.
+
+\target{CM1A}
+\target{CM1B}
+\target{CM1C}
+
+\section*{CM2 --- comment shape}
+
+Two paragraphs, nothing at all, and one space. The three are different
+states and a tool that collapses them is losing information.
+
+\target{CM2A}
+\target{CM2B}
+\target{CM2C}
+
+\section*{CM3 --- characters hostile to the output format}
+
+The output is Markdown and JSON. A comment is arbitrary user text and
+may contain either syntax. Neither may leak into the structure of the
+output.
+
+\target{CM3A}
+\target{CM3B}
+
+\section*{CM4 --- a long comment}
+
+\target{CM4A}
+
+\clearpage
+\section*{CM5 --- author}
+
+\target{CM5A}
+
+\section*{CM6 --- creation time against modification time}
+
+\target{CM6A}
+
+\section*{CM7 --- colour}
+
+A survey rather than an assertion: the palette belongs to the tool.
+
+\target{CM7A}
+\target{CM7B}
+\target{CM7C}
+
+\end{document}

@@ -1,0 +1,118 @@
+{
+  "fixture": "actualtext",
+  "source": "base.tex",
+  "schema": 3,
+  "provenance": "covered_text is what base.tex declares each span to mean, read back from pdftotext on base.pdf, which honours /ActualText. That agreement is weak evidence: pdftotext and our extractor could share a misreading of the same key. No producer file existed when this was written.",
+  "matching": "Match by the [[ATn]] sentinel in covered_text. Every item has covered text. An extracted text containing a sentinel other than its own fails regardless of the rest of the string. AT5A and AT5B carry their sentinel at the START, because those selections stop inside a tagged span and cannot end with one. AT7A is the only item on page 2.",
+  "author_policy": "author is null for every item: any value passes. Producers commonly override the author with the system user name.",
+  "pages_without_annotations": [],
+  "annotations": [
+    {
+      "id": "AT1A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the tagged tariffs of the schedule [[AT1A]]",
+      "comment": "Declaration decomposes the ligature.",
+      "author": null,
+      "notes": "The ff is one glyph mapped to U+FB00, wrapped in a declaration saying the run means 'tariffs' with two ordinary letters. Canonical is the same under both settings, because the declaration is authoritative and the default fold would have produced it anyway. The pair AT1A/AT1B only discriminates under --keep-ligatures, where AT1A must stay decomposed and AT1B must not."
+    },
+    {
+      "id": "AT1B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the untagged tariffs of the schedule [[AT1B]]",
+      "comment": "Control: no declaration, folded by default.",
+      "author": null,
+      "notes": "Identical on the page to AT1A and carrying the same U+FB00 glyph, with no declaration. Canonical assumes default options, so it is folded. Under --keep-ligatures this becomes 'the untagged tariﬀs of the schedule [[AT1B]]' while AT1A does not move. If the two agree under --keep-ligatures, the declaration is being ignored."
+    },
+    {
+      "id": "AT2A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a declared ﬁxed point in the mapping [[AT2A]]",
+      "comment": "Declaration asserts U+FB01.",
+      "author": null,
+      "notes": "THE ITEM THAT MOTIVATED THE POLICY. The glyphs decompose on their own; the document declares the presentation form anyway, as a Unicode reference or a typography paper would. U+FB01 must SURVIVE under both settings, including the default fold. If it folds, the fold is running after the declaration instead of before it, which is the wrong layer: /ActualText is the author's text, and folding is a transformation applied to glyphs whose meaning had to be inferred."
+    },
+    {
+      "id": "AT3A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the Section on rounding conventions [[AT3A]]",
+      "comment": "One glyph, seven characters.",
+      "author": null,
+      "notes": "A single section-sign glyph declared to mean 'Section'. Emitting the section sign means the declaration was ignored; emitting one character of 'Section' means a length assumption tied characters to glyph count."
+    },
+    {
+      "id": "AT3B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the ™ mark on the product name [[AT3B]]",
+      "comment": "Four glyphs, one character.",
+      "author": null,
+      "notes": "The reverse of AT3A: four glyphs declared to mean U+2122. Emitting '(TM)' means the declaration was ignored. Together the two catch offset drift in both directions; a tool tracking character positions against glyph positions diverges from here on."
+    },
+    {
+      "id": "AT4A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the surrounding infrastructure of the market [[AT4A]]",
+      "comment": "Hyphen declared to mean nothing.",
+      "author": null,
+      "notes": "Two quads. The hyphen carries an EMPTY declaration: the document says that glyph stands for no character. Canonical is the same under BOTH hyphen settings, --keep-hyphens included, because there is nothing left to guess. Compare tests/text TX4A and TX4B, where no setting makes both right. That contrast is the point: TX4's ambiguity is a property of untagged PDFs, not of PDF."
+    },
+    {
+      "id": "AT5A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "[[AT5A]] see Figure 3",
+      "comment": "Majority of the span covered.",
+      "author": null,
+      "notes": "The sentinel is at the START: the selection stops inside a tagged span. DECISION, not a defect. A declared span is atomic -- a quad covering part of it cannot be told which part of 'Figure 3' corresponds -- so it is emitted whole when the quad covers a majority of its advance. This is the tests/text TX3C glyph rule lifted one level. Falling back to per-glyph /ToUnicode for the covered part is the tempting third option and is wrong: the producer has said those glyphs do not stand for themselves."
+    },
+    {
+      "id": "AT5B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "[[AT5B]] consult",
+      "comment": "Minority of the span covered.",
+      "author": null,
+      "notes": "The mirror of AT5A, below the majority threshold, so the declaration is omitted entirely. Emitting 'Figure 3' here means the rule is 'any overlap includes the span'; emitting 'the' means it fell back to raw glyphs. Both are defensible rules and neither is the one recorded."
+    },
+    {
+      "id": "AT6A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the described phrase in this sentence [[AT6A]]",
+      "comment": "/Alt must not be substituted.",
+      "author": null,
+      "notes": "/Alt describes; /ActualText replaces. A tool that substitutes /Alt has invented text that is not in the document. The string 'ALT MUST NOT APPEAR' must not occur in the output for any item in this family, which is a cheaper assertion than this one and worth making separately in the harness."
+    },
+    {
+      "id": "AT7A",
+      "page": 2,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the Figure 3 is cited here [[AT7A]]",
+      "comment": "One declaration, two quads.",
+      "author": null,
+      "notes": "The rendered span is broken across two lines and declared to mean 'Figure 3'. The declared text must appear ONCE. The two failure modes are opposite and both plausible: twice means the declaration was applied per quad rather than per span, absent or raw means the span was dropped for crossing a quad boundary."
+    }
+  ],
+  "comparison": "Compared exactly. No per-producer expectation files, no overrides, no variant lists: this file states what the document means, so a producer whose file cannot yield it is a finding to document and a shortfall in our extractor is a bug to fix.",
+  "extractor_options": "Canonical values assume default options, which fold ligature presentation forms U+FB00-U+FB06 to their letters. --keep-ligatures turns the fold off and moves AT1B only, to 'the untagged tariﬀs of the schedule [[AT1B]]'. Every other item is invariant under it, and that invariance is the assertion: a declaration is not subject to the fold. --keep-hyphens moves nothing here, unlike tests/text TX4.",
+  "failure_policy": "A failing item is a tracked defect, in our extractor or in the producer. See PRODUCERS.md for observed producer behaviour. Nothing there relaxes this file.",
+  "order_policy": "No item has an undefined order. Every target is a single line or a plain two-line wrap in one column. Sequence between annotations is not asserted here; that is tests/order.",
+  "layering": "The policy this family pins is an ORDER OF OPERATIONS, not a set of strings. Resolve /ActualText first, then fold what is left. A fold applied to the output of a declaration destroys AT2A; a declaration applied after a fold cannot restore AT1A. Every item here holds under both option settings except AT1B, which is the control that proves the fold still runs at all.",
+  "silent_pass_risks": "This family is void for any producer that rewrites the content stream on save, and the failure is silent: the annotations survive, the declarations do not, and every item quietly falls back to /ToUnicode. Check before trusting a run -- grep -c ActualText FILE must be 8 and grep -cE '/Alt[ (<]' FILE must be 1. AT1 additionally proves nothing unless the family is run under --keep-ligatures as well as the default.",
+  "status_field": "status and notes are documentation. The harness deserialises id, page, subtype, covered_text, comment, author and order only, and ignores everything else."
+}

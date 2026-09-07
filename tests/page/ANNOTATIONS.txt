@@ -1,0 +1,350 @@
+ANNOTATION SCRIPT FOR tests/page/base.pdf
+=========================================
+
+Purpose
+-------
+One topic: attributes the extractor must read from the DOCUMENT rather
+than from the annotation, in order to answer two questions about a
+quad -- WHERE is it on the page, and WHAT IS THE PAGE CALLED.
+
+/Rotate, /CropBox, /MediaBox and the other page boxes answer the first.
+The catalog's /PageLabels answers the second. Neither is reachable from
+the annotation dictionary, and an extractor that never looks at them is
+wrong on every page that has any.
+
+Characters under a quad are tests/text. Declared text is
+tests/actualtext. The annotation dictionary is tests/inventory and
+tests/comments. Dictionaries no producer will write are
+tests/structure.
+
+Every page carries the SAME sentence and takes ONE highlight, so
+expected.json is one item repeated and a failure names exactly one
+attribute combination with no reading required. Seventeen near-
+identical drags.
+
+Build first -- base.pdf is not committed straight from pdflatex:
+
+    pdflatex base.tex && python3 make.py
+
+make.py moves /MediaBox off PG15 and /Rotate off PG16, neither of which
+pdflatex can do, and then checks the whole grid. Skipping it silently
+turns those two pages into duplicates of PG01 and PG02.
+
+Save each annotated result as
+
+    base-<tool>-<version>.pdf        e.g. base-okular-26.04.3.pdf
+
+into producers/.
+
+Ground rules
+------------
+1. Do not let the tool flatten, optimise, or "print to PDF" the file. That
+   converts annotations into page content and destroys the test.
+2. Check the tool actually writes annotations INTO the PDF. Some readers
+   (Skim, Zotero) keep them in a sidecar by default; find the setting or
+   use a different tool.
+3. Every target phrase ends with a sentinel like [[E1A]]. ALWAYS include
+   the sentinel in the selection. The sentinel is how a test knows which
+   annotation it is looking at, and how it detects text bleeding in from a
+   neighbouring line.
+4. Selections start at the first word given and end at the sentinel's
+   closing brackets, inclusive. Nothing before, nothing after.
+5. Type comments exactly as written, including accents and punctuation.
+   Copy-paste rather than retype.
+6. Note the tool name and version in a file next to the PDF. If the tool
+   has a choice of highlight colour, use yellow unless told otherwise.
+
+The selection is the same on all seventeen pages
+------------------------------------------------
+Every page carries the SAME sentence in the SAME place. The only thing
+that differs is the page's attributes and the sentinel:
+
+      Type:     Highlight
+      Select:   "A highlight sits on this page [[PGnn]]"
+                where nn is the number in the heading at the top.
+      Comment:  as given per item below.
+
+Do NOT select the heading, and do NOT select the description line
+between the heading and the target.
+
+Your viewer will display the rotated pages upright. ANNOTATE WHAT YOU
+SEE. Do not try to compensate for the rotation, and do not worry about
+which way round the page "really" is.
+
+Because the sentence is in the same place on every page, and because
+/QuadPoints are always in default user space regardless of /Rotate, a
+correct file has NEAR-IDENTICAL QUADS ON ALL SEVENTEEN PAGES:
+
+      x = [ 85.0, 510.2 ]      y = [ 693.9, 703.6 ]
+
+That is the whole agreement about what to highlight, and check.py
+tests it:
+
+    uv run check.py producers/base-<tool>-<version>.pdf
+
+RUN IT BEFORE RECORDING ANY RESULT. The annotator cannot see which
+frame the quads were written in. A viewer that helpfully subtracts the
+/CropBox inset, or writes quads in the rotated display frame, produces
+a file that looks perfect on screen and is wrong in exactly the ways
+this family measures -- and the failure would be recorded against our
+extractor instead of the producer. check.py names the transform:
+
+    PG07: quad centre off by (-20.0, -20.0)
+          possible cause: an inset /CropBox subtracted
+
+EXPECT SKIPS. Several viewers cannot annotate a rotated page at all --
+Okular could not, for tests/basic E8A. That is data about the producer,
+not a failure. Leave the item out and add an entry to skips.json with
+evidence. check.py lists the pages it found nothing on.
+
+Order of work. Do PG01 first and run check.py on it alone. If PG01 is
+wrong, nothing else in the family means anything and there is no point
+doing the other sixteen.
+
+----------------------------------------------------------------------
+PG01 -- the control
+----------------------------------------------------------------------
+
+Nothing is set: no rotation, no crop box, default media box. It exists
+to separate a systematic error, which breaks every page, from a
+combination-specific one, which breaks only some.
+
+PG01   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG01]]"
+       Comment:  Control.
+       Screen:   an ordinary upright A4 page.
+       NOTE:     Also the only page with NO page label -- it falls
+                 before the first /PageLabels range, which is legal.
+                 Nothing to do about that while annotating.
+
+----------------------------------------------------------------------
+PG02, PG03, PG04 -- rotation alone
+----------------------------------------------------------------------
+
+One attribute each. A tool may pass all three and still be broken;
+these establish the baseline that the combinations in PG06-PG08 and
+PG10-PG12 are measured against.
+
+PG02   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG02]]"
+       Comment:  Rotate 90.
+       Screen:   upright, because the viewer applies the rotation. The
+                 page will look like PG01.
+
+PG03   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG03]]"
+       Comment:  Rotate 180.
+       Screen:   upright. If it appears upside down, your viewer is
+                 ignoring /Rotate -- record that in PRODUCERS.md and
+                 annotate the text anyway, reading it upside down.
+
+PG04   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG04]]"
+       Comment:  Rotate 270.
+       Screen:   upright.
+
+----------------------------------------------------------------------
+PG05 -- an inset crop box
+----------------------------------------------------------------------
+
+PG05   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG05]]"
+       Comment:  CropBox inset.
+       Screen:   a slightly SMALLER page than PG01 -- 20pt trimmed from
+                 each edge -- with the text correspondingly closer to
+                 the paper edge. The text itself has not moved.
+
+----------------------------------------------------------------------
+PG06, PG07, PG08 -- rotation with an inset crop box
+----------------------------------------------------------------------
+
+THE POINT OF THE FAMILY. Rotation and the crop offset adjust the same
+coordinates, and an implementation that gets each right alone can still
+combine them with the wrong sign. That is a real defect shape rather
+than a hypothetical: pdfannots2json subtracts CropBox from MediaBox on
+one rotation and MediaBox from CropBox on another. Only a page with
+both features set shows it, and only all four rotations show WHICH
+rotation is wrong.
+
+If a tool passes PG02 and PG05 but fails PG06, that is a specific,
+reportable defect and not "rotation is unsupported".
+
+PG06   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG06]]"
+       Comment:  Rotate 90 and crop.
+       Screen:   upright and slightly smaller, like PG05.
+
+PG07   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG07]]"
+       Comment:  Rotate 180 and crop.
+       Screen:   upright and slightly smaller.
+
+PG08   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG08]]"
+       Comment:  Rotate 270 and crop.
+       Screen:   upright and slightly smaller.
+
+----------------------------------------------------------------------
+PG09 -- a shifted media box origin
+----------------------------------------------------------------------
+
+The page is the same SIZE as PG01 but its origin is at (20,20) rather
+than (0,0). The text is drawn at the same user-space coordinates, so on
+screen it sits 20pt closer to one corner. Probes whether coordinates
+are treated as absolute or origin-relative.
+
+PG09   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG09]]"
+       Comment:  Shifted origin.
+       Screen:   the same size as PG01, with the text block visibly
+                 nearer the bottom-left corner.
+
+----------------------------------------------------------------------
+PG10, PG11, PG12 -- rotation with a shifted origin
+----------------------------------------------------------------------
+
+The same combination trap as PG06-PG08, with the offset coming from a
+different key. A tool can special-case /CropBox and still get the
+origin wrong, or the reverse.
+
+PG10   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG10]]"
+       Comment:  Rotate 90 and shift.
+       Screen:   upright, text nearer one corner.
+
+PG11   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG11]]"
+       Comment:  Rotate 180 and shift.
+       Screen:   upright, text nearer one corner.
+
+PG12   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG12]]"
+       Comment:  Rotate 270 and shift.
+       Screen:   upright, text nearer one corner.
+
+----------------------------------------------------------------------
+PG13 -- two offsets from two keys
+----------------------------------------------------------------------
+
+A shifted origin AND an inset crop box, so two offsets from different
+keys have to compose. A tool that handles either alone can still add
+them twice or once.
+
+PG13   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG13]]"
+       Comment:  Two offsets compose.
+       Screen:   smaller than PG01, with the text off-centre.
+
+----------------------------------------------------------------------
+PG14 -- a rotation outside [0,360)
+----------------------------------------------------------------------
+
+ISO 32000-1 requires /Rotate to be a multiple of 90. It does not
+require it to be in [0,360). This page carries -90, which is 270
+normalised. A tool that switches on the raw value, or divides by 90
+without normalising first, fails here and nowhere else.
+
+PG14   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG14]]"
+       Comment:  Rotate out of range.
+       Screen:   upright, and identical to PG04. If PG14 looks
+                 DIFFERENT from PG04 in your viewer, the viewer is not
+                 normalising either -- which is worth recording in
+                 PRODUCERS.md, because it means a mainstream reader
+                 disagrees with the spec here too.
+
+----------------------------------------------------------------------
+PG15, PG16 -- attributes inherited from /Pages
+----------------------------------------------------------------------
+
+THE SILENT ONES, and the reason make.py exists. /MediaBox, /CropBox and
+/Rotate are all inheritable (ISO 32000-1 Table 30), so a page
+dictionary may omit them and take the value from /Pages. A tool that
+reads the page dictionary only gets no error at all: PG15 has no page
+size and PG16 comes out unrotated. Data loss that looks like a clean
+run is worse than a crash.
+
+PG15   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG15]]"
+       Comment:  Inherited MediaBox.
+       Screen:   identical to PG01. If your viewer cannot open the
+                 file, or renders this page at a wrong size, it does
+                 not do the /Parent walk -- record it and skip.
+
+PG16   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG16]]"
+       Comment:  Inherited Rotate.
+       Screen:   should look like PG02 -- upright, because the viewer
+                 applies the inherited /Rotate 90. If it looks
+                 landscape instead, your viewer is not inheriting
+                 /Rotate. Annotate the text anyway; the quads are on
+                 the same glyphs either way. Record the discrepancy.
+
+       NOTE:     PG16 is the weakest-evidenced page in the family. The
+                 spec permits inherited /Rotate and readers implement
+                 the walk generically, but no producer has been
+                 observed writing it. Run tools/survey.py over a real
+                 paper library; if it never turns up, PG16 belongs in
+                 tests/structure instead.
+
+----------------------------------------------------------------------
+PG17 -- a box that must be ignored
+----------------------------------------------------------------------
+
+A negative case. Print-ready PDFs from publishers routinely carry
+/TrimBox and /BleedBox alongside /CropBox, and a tool reaching for the
+wrong box mislocates every quad on the page. Here /CropBox is inset
+20pt and /TrimBox 40pt, so using /TrimBox is off by exactly 20pt in
+both directions rather than subtly wrong.
+
+PG17   Type:     Highlight
+       Select:   "A highlight sits on this page [[PG17]]"
+       Comment:  TrimBox must be ignored.
+       Screen:   like PG05, because viewers display the crop box.
+       NOTE:     If your viewer has a print-preview or trim view, do
+                 NOT annotate in it. It may display the trim box, and
+                 the selection would land somewhere else.
+
+----------------------------------------------------------------------
+Page labels
+----------------------------------------------------------------------
+
+The catalog also names the pages, so the same seventeen annotations
+test page NAMING as well as page location:
+
+  physical  1     2  3   4    5  6  7  8  9  10   11 12 13 14   15..17
+  label     none  i  ii  iii  1  2  3  4  5  6    A  B  C  D    App- x3
+
+Four styles, and two hazards that are better stated than discovered.
+PG01 falls before the first /Nums entry and has NO label at all, which
+is legal. PG15 to PG17 use a prefix with no /S, which is also legal and
+gives all three pages THE SAME LABEL. Page labels are neither unique
+nor always present, and anything that keys on them has to survive both.
+
+A tool reporting physical numbers agrees with the labels nowhere except
+by coincidence. Both answers are in expected.json; which one belongs in
+the output is a policy question, not a defect, but they must not be
+confused.
+
+Nothing about the labels needs doing while annotating. They are read
+from the document, not from the annotations.
+
+----------------------------------------------------------------------
+If you edit base.tex
+----------------------------------------------------------------------
+
+\pdfpageattr IS STICKY. It persists to every following page until
+changed, so a page with no \pdfpageattr silently inherits the previous
+page's attributes. That produced a wrong grid the first time this file
+was written, with seven pages carrying a /CropBox that only one was
+meant to have. Every page sets it, including PG16, whose empty {} is
+load-bearing rather than decorative.
+
+After any edit:
+
+    pdflatex base.tex && python3 make.py
+
+make.py checks all seventeen pages against the grid it carries and
+exits non-zero on any mismatch. It reads raw page dictionaries rather
+than pypdf's page wrapper, because the wrapper resolves inheritance and
+would report PG15 and PG16 as fine when the edits had failed.

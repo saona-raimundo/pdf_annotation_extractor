@@ -1,0 +1,137 @@
+{
+  "fixture": "text",
+  "source": "base.tex",
+  "schema": 3,
+  "provenance": "covered_text is what base.tex says each selection covers, read back from pdftotext on base.pdf. No producer file existed when this was written, so nothing here was cross-checked against a second implementation the way tests/basic was against pdfannots 0.5. The first producer file to disagree is evidence to weigh, not a reason to edit this file.",
+  "matching": "Match by the [[TXnn]] sentinel in covered_text. Every item has covered text, so none falls back to page, subtype and comment. An extracted text containing a sentinel other than its own fails regardless of the rest of the string. [[TX2X]] and [[TX2Y]] are decoys with no expected item: they exist only so that TX2A and TX2B fail if they bleed.",
+  "author_policy": "author is null for every item. Producers commonly override the author with the system user name, so null means 'any value'. The one item in the corpus that asserts an author is tests/basic E5B, and tests/comments CM3A repeats it deliberately.",
+  "pages_without_annotations": [],
+  "annotations": [
+    {
+      "id": "TX1A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the marginal tariff [[TX1A]]",
+      "comment": "Ligature ends the word; a real space follows.",
+      "author": null,
+      "notes": "The ff is one glyph mapped to U+FB00. Canonical is the decomposed form, so this item asserts TWO things and the failure tells you which: 'tariff [[TX1A]]' with the space intact but U+FB00 present means the presentation form is not being decomposed; 'tariff[[TX1A]]' with two ASCII f's and no space means a substitution ate the space, which is the pdfannots2json defect; U+FB00 with no space means both."
+    },
+    {
+      "id": "TX1B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a tariff on imported staff [[TX1B]]",
+      "comment": "Two word-final ligatures in one selection.",
+      "author": null,
+      "notes": "Two U+FB00 glyphs, each followed by a real space. The second is followed by a word rather than a sentinel, so a swallowed space shows up as 'staffcosts' as well as 'stafF[[TX1B]]'-style joins."
+    },
+    {
+      "id": "TX1C",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the fixed offer [[TX1C]]",
+      "comment": "Control: ligatures with no space after them.",
+      "author": null,
+      "notes": "Control for TX1A and TX1B. 'offer' carries the same U+FB00 mid-word and 'fixed' a decomposed fi; neither is followed by a space, so nothing here can be eaten. If TX1C fails while TX1A passes the defect is not about spaces at all."
+    },
+    {
+      "id": "TX2A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the target line itself, selected on its own [[TX2A]]",
+      "comment": "One line from a tight block.",
+      "author": null,
+      "notes": "Lines are 8pt apart with 9.6pt word boxes, so neighbouring glyphs sit inside this line's vertical extent. Containing [[TX2X]] or [[TX2B]] means the vertical band is too generous. See PRODUCERS.md: if a producer wrote quads tight to the glyph boxes rather than the line box, a pass here proves nothing."
+    },
+    {
+      "id": "TX2B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the line below the target, also selected on its own [[TX2B]]",
+      "comment": "The line directly below TX2A.",
+      "author": null,
+      "notes": "Directly below TX2A, so the pair catches bleed in both directions. Must not contain [[TX2A]] or [[TX2Y]]."
+    },
+    {
+      "id": "TX3A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "[[TX3A]] a persistent leverage premiu",
+      "comment": "Ends inside a glyph run.",
+      "author": null,
+      "notes": "The sentinel is at the START: the selection stops mid-word and cannot end with one. The quad edge falls between 'u' and 'm', a clean glyph boundary inside one word and one text-showing operator. Over-capture to 'premium' means span-level granularity; 'premi' or shorter means the last covered glyph was clipped."
+    },
+    {
+      "id": "TX3B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "ginal contribution [[TX3B]]",
+      "comment": "Starts inside a glyph run.",
+      "author": null,
+      "notes": "The mirror of TX3A: the leading edge falls inside 'marginal'. Over-capture yields 'marginal contribution [[TX3B]]'."
+    },
+    {
+      "id": "TX3C",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "[[TX3C]] the annual payo",
+      "comment": "Edge inside a ligature glyph.",
+      "author": null,
+      "notes": "The only genuinely mid-GLYPH edge reachable by hand. Everywhere else a selection snaps to a character boundary, which is a glyph boundary too; a ligature is one glyph carrying two characters, so stopping between them puts the edge inside it. DECISION, not a defect: a glyph is atomic and cannot be half-emitted, so the canonical rule excludes a glyph whose advance is mostly outside the quad. The alternative, emitting the whole ligature as 'payoff', is defensible; what matters is that the rule is stated and stable. Most producers cannot make this selection at all - see skips.json."
+    },
+    {
+      "id": "TX4A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the surrounding infrastructure of the market [[TX4A]]",
+      "comment": "Break inside one word.",
+      "author": null,
+      "notes": "Two quads. The line break falls inside a single word, so joining is right and the canonical form closes it. Under --keep-hyphens this becomes 'infra-structure'."
+    },
+    {
+      "id": "TX4B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "a memorymapped representation of the file [[TX4B]]",
+      "comment": "Break on a compound hyphen.",
+      "author": null,
+      "notes": "CANONICAL IS THE DEFAULT-OPTIONS ANSWER AND IS NOT WHAT THE DOCUMENT MEANS. The document means 'memory-mapped'; the default joins the break and gives 'memorymapped'. Nothing in the PDF distinguishes a discretionary hyphen from a compound one - same glyph, same position - so no setting makes TX4A and TX4B both correct. The pair exists to keep that visible. Following tests/basic E2A, canonical assumes default options and the semantic answer is recorded here rather than asserted."
+    },
+    {
+      "id": "TX5A",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the Größe of a café — naïve, précis, Ångström [[TX5A]]",
+      "comment": "Accents and an em dash in the covered text.",
+      "author": null,
+      "notes": "Non-ASCII in the DOCUMENT, decoded through the font's /ToUnicode. A separate path from comment decoding, which is tests/comments CM1. U+00F6, U+00DF, U+00E9, U+00EF, U+00C5 and U+2014 with a space on each side."
+    },
+    {
+      "id": "TX5B",
+      "page": 1,
+      "subtype": "Highlight",
+      "status": "expected",
+      "covered_text": "the “efficient” frontier’s edge – a co-operative fixed point [[TX5B]]",
+      "comment": "Curly quotes, an apostrophe and an en dash.",
+      "author": null,
+      "notes": "U+201C and U+201D around 'efficient', U+2019 in 'frontier's', U+2013 between 'edge' and 'a'. ASCII quotes coming back means something in the chain is normalising the author's text. 'co-operative' is a mid-line hyphen and must survive under BOTH hyphen settings: if it does not, TX4 will point at the line-break rule when the defect is in hyphen handling generally. 'efficient' carries a decomposed ffi, unlike TX1's ff - passing TX1 and failing here means the two ligature forms are treated differently."
+    }
+  ],
+  "comparison": "Compared exactly. There are no per-producer expectation files, no overrides and no variant lists: this file states what the document means, so a producer whose file cannot yield it is a finding to document, and a shortfall in our extractor is a bug to fix. Neither is an expectation to adjust. TX4B is the single deliberate exception and says so in its own notes.",
+  "extractor_options": "Canonical values assume default options. --keep-hyphens changes TX4A to 'infra-structure' and TX4B to 'memory-mapped'. No setting makes TX4A and TX4B both right, which is the point of the pair rather than a defect in either. If ligature decomposition ever becomes an option axis, TX1A, TX1B and TX3C move with it; today it is assumed on.",
+  "failure_policy": "A failing item is a tracked defect, in our extractor or in the producer. See PRODUCERS.md for observed producer behaviour. Nothing there relaxes this file.",
+  "order_policy": "No item in this family has an undefined order. Every target is a single line or a plain two-line wrap in one column, so reading order is unambiguous throughout and all twelve are compared as exact strings. Sequence between annotations is not asserted here at all; that is tests/order.",
+  "silent_pass_risks": "Three items can pass while testing nothing, and each is checkable before trusting a run. TX1A-C and TX3C need the ff ligature to reach the extracted text as U+FB00, which depends on \\pdfglyphtounicode in base.tex: pdftotext base.pdf - | grep -c $'\\ufb00' must be 5. TX2A and TX2B need the producer's quads to be taller than the glyph boxes; dump /QuadPoints per producer and record it in PRODUCERS.md. TX3A-C need a viewer offering character-level selection; a tool that snaps to word boundaries cannot produce them and belongs in skips.json.",
+  "status_field": "status and notes are documentation. The harness deserialises id, page, subtype, covered_text, comment, author and order only, and ignores everything else."
+}

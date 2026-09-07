@@ -1,0 +1,154 @@
+% =====================================================================
+% Annotation-extraction fixture: ACTUALTEXT
+%
+%   pdflatex base.tex        (one run is enough; no aux dependencies)
+%
+% TOPIC: /ActualText -- the document's own declaration of what a run of
+% glyphs means, which overrides whatever the font's /ToUnicode says
+% about those glyphs.
+%
+% This is the only place in the corpus where authorial intent is
+% RECOVERABLE rather than guessed. Everywhere else an extractor sees a
+% glyph and a /ToUnicode entry chosen by the producer's toolchain, and
+% cannot tell a typographic ligature from a character the author meant
+% to write. /ActualText is the spec's answer to that, and where it is
+% present it wins.
+%
+% Not here: glyph-to-character recovery in the ABSENCE of a declaration
+% (tests/text), output sequence (tests/order), page attributes
+% (tests/page), the annotation dictionary (tests/inventory,
+% tests/comments), dictionaries no producer writes (tests/structure).
+%
+% HAND-ANNOTATED. /ActualText lives in the content stream, put there by
+% the DOCUMENT producer; the annotations over it are ordinary
+% highlights. Nothing here needs a generator.
+%
+% Contains NO annotations. Annotate base.pdf by hand in each program
+% following ANNOTATIONS.txt, and save as base-<tool>-<version>.pdf.
+%
+% Deliberate choices:
+%
+%   * accsupp for the marked-content wrappers. It is the only widely
+%     available way to emit /ActualText from pdflatex. hyperref is still
+%     excluded: it would add /Link annotations to /Annots.
+%
+%   * \pdfglyphtounicode{ff}{FB00} as in tests/text, so that AT1 has a
+%     real presentation form to override. Without it AT1's tagged and
+%     untagged targets are indistinguishable and the item tests nothing.
+%
+%   * every \AT call carries the readable string in a comment beside the
+%     hex. The hex is UTF-16BE, which is what accsupp's method=hex
+%     expects, and is unreadable by eye -- a wrong digit produces a
+%     plausible fixture that asserts the wrong thing.
+%
+%   * uncompressed, so the marked content can be inspected:
+%       grep -c ActualText base.pdf          # expect 8
+%       grep -cE "/Alt[ (<]" base.pdf        # expect 1
+%     A producer that strips marked content on save destroys this whole
+%     family silently. Check before trusting a run.
+%
+%   * every target carries a unique sentinel [[ATn]], at the END of the
+%     selection -- EXCEPT AT5A and AT5B, whose selections stop inside a
+%     tagged span and so cannot end with one.
+% =====================================================================
+
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{accsupp}
+\usepackage[margin=3cm]{geometry}
+
+\input glyphtounicode
+\pdfgentounicode=1
+\pdfglyphtounicode{ff}{FB00}   % see header note
+
+\pdfcompresslevel=0
+\pdfobjcompresslevel=0
+
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+
+% \AT{utf-16be hex}{visible text}  -- declares what the glyphs mean
+\newcommand{\AT}[2]{\BeginAccSupp{method=hex,unicode,ActualText=#1}#2\EndAccSupp{}}
+% \ATnil{visible text}             -- declares the glyphs mean nothing
+\newcommand{\ATnil}[1]{\BeginAccSupp{method=hex,unicode,ActualText=}#1\EndAccSupp{}}
+% \ALT{utf-16be hex}{visible text} -- an ALTERNATE DESCRIPTION, not a
+%                                     replacement: must never be substituted
+\newcommand{\ALT}[2]{\BeginAccSupp{method=hex,unicode,Alt=#1}#2\EndAccSupp{}}
+
+\begin{document}
+
+\section*{AT1 --- a declaration that decomposes a ligature}
+
+The tagged target and its untagged control render identically. Only the
+declaration tells them apart, and only when ligatures are kept.
+
+the tagged \AT{0074006100720069006600660073}{tariffs} of the schedule [[AT1A]]
+% ActualText = tariffs
+
+the untagged tariffs of the schedule [[AT1B]]
+
+\section*{AT2 --- a declaration that asserts a presentation form}
+
+Here the glyphs decompose on their own and the document declares the
+presentation form anyway. This is the case a fold cannot be allowed to
+undo: the author asked for U+FB01.
+
+a declared \AT{FB01007800650064}{fixed} point in the mapping [[AT2A]]
+% ActualText = U+FB01 xed
+
+\section*{AT3 --- declared text of a different length}
+
+One glyph standing for many characters, and many glyphs standing for
+one. Both directions, because a length assumption breaks only one way.
+
+the \AT{00530065006300740069006F006E}{\S} on rounding conventions [[AT3A]]
+% ActualText = Section
+
+the \AT{2122}{(TM)} mark on the product name [[AT3B]]
+% ActualText = U+2122
+
+\section*{AT4 --- a hyphen declared to mean nothing}
+
+The break below is inside one word and its hyphen carries an EMPTY
+declaration, so the join is not a guess. Compare tests/text TX4, where
+nothing in the PDF distinguishes this from a compound hyphen.
+
+\parbox{0.9\textwidth}{\raggedright
+the surrounding infra\ATnil{-}\linebreak structure of the market [[AT4A]]%
+}
+
+\section*{AT5 --- a selection that covers part of a tagged span}
+
+A declaration applies to its whole span. A quad that covers only part
+of one cannot be told which part of the declared text corresponds.
+
+[[AT5A]] see \AT{00460069006700750072006500200033}{the third figure} here
+% ActualText = Figure 3
+
+[[AT5B]] consult \AT{00460069006700750072006500200033}{the third figure} here
+% ActualText = Figure 3
+
+\section*{AT6 --- an alternate description, not a replacement}
+
+/Alt describes; /ActualText replaces. Substituting /Alt into the
+extracted text is a defect, not a nicety.
+
+the \ALT{0041004C00540020004D0055005300540020004E004F00540020004100500050004500410052}{described}
+% Alt = ALT MUST NOT APPEAR
+phrase in this sentence [[AT6A]]
+
+\section*{AT7 --- a tagged span across a line break}
+
+One declaration, two quads. The declared text must appear once.
+
+\parbox{0.42\textwidth}{\raggedright
+the \AT{00460069006700750072006500200033}{third figure\linebreak of the set}
+% ActualText = Figure 3, and the span itself is broken across two lines
+is cited here [[AT7A]]%
+}
+
+\end{document}
