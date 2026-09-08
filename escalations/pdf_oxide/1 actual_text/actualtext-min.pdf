@@ -1,0 +1,44 @@
+%PDF-1.7
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Length 484 >>
+stream
+BT /F1 12 Tf 20 160 Td [(the )]TJ ET
+/Span<</ActualText<FEFF2122>>>BDC
+BT /F1 12 Tf 42.7 160 Td [(\(TM\))]TJ ET
+EMC
+BT /F1 12 Tf 20 130 Td [(the )]TJ ET
+/Span<</ActualText<FEFF00530065006300740069006F006E>>>BDC
+BT /F1 12 Tf 42.7 130 Td [(\247)]TJ ET
+EMC
+BT /F1 12 Tf 49.4 130 Td [( on rounding)]TJ ET
+/Span<</ActualText<FEFF00460069006700750072006500200033>>>BDC
+BT /F1 12 Tf 20 100 Td [(third figure)]TJ 0 -20 Td [(of the set)]TJ ET
+EMC
+BT /F1 12 Tf 84 80 Td [( is cited here)]TJ ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000338 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+872
+%%EOF

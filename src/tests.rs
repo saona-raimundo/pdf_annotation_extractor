@@ -67,6 +67,10 @@ impl Write for FailingWriter {
 // ------------------------------------------------- decode_pdf_string
 // Pins: comments arriving as "??" because pdf_oxide runs /Contents through
 // String::from_utf8_lossy with no UTF-16 handling.
+//
+// These assert at the call site. The encodings themselves, including the
+// PDFDocEncoding table and which assumption each reading rests on, are tested
+// in `pdf_string`.
 
 #[test]
 fn decodes_utf16be_with_bom() {
@@ -188,7 +192,7 @@ fn infers_top_down_bottom_from_baseline_semantics() {
         .collect();
     assert_eq!(
         GlyphSpace::infer(&chars, 792.0, false),
-        GlyphSpace::TopDownBottom
+        Some(GlyphSpace::TopDownBottom)
     );
 }
 
@@ -199,19 +203,23 @@ fn infers_bottom_up_when_y_decreases_through_the_page() {
         .collect();
     assert_eq!(
         GlyphSpace::infer(&chars, 792.0, false),
-        GlyphSpace::BottomUp
+        Some(GlyphSpace::BottomUp)
     );
 }
 
 #[test]
-fn infer_falls_back_on_too_few_glyphs() {
+fn declines_to_infer_from_too_few_glyphs() {
+    // Five glyphs is not a top and a bottom to compare. Returning a
+    // convention here — TopDownBottom, as this did — is a guess that reads
+    // like a measurement downstream, and `page/` lost all seventeen items to
+    // exactly that: no page reached the sampling threshold, so the caller
+    // kept its initialiser and matched every quad in a convention pdf_oxide
+    // never emits. The caller now has to choose a fallback in the open, and
+    // says so on stderr when it does.
     let chars: Vec<TextChar> = (0..5)
         .map(|i| glyph('a', 50.0, 50.0 + i as f32 * 20.0, 5.0, 10.0))
         .collect();
-    assert_eq!(
-        GlyphSpace::infer(&chars, 792.0, false),
-        GlyphSpace::TopDownBottom
-    );
+    assert_eq!(GlyphSpace::infer(&chars, 792.0, false), None);
 }
 
 #[test]
@@ -230,7 +238,7 @@ fn infer_uses_off_page_count_when_y_is_a_real_edge() {
         .collect();
     assert_eq!(
         GlyphSpace::infer(&chars, page_height, false),
-        GlyphSpace::TopDownBottom
+        Some(GlyphSpace::TopDownBottom)
     );
 
     // Same shape, glyphs hugging the page top: now the bottom reading is the
@@ -246,8 +254,32 @@ fn infer_uses_off_page_count_when_y_is_a_real_edge() {
         .collect();
     assert_eq!(
         GlyphSpace::infer(&chars, page_height, false),
-        GlyphSpace::TopDownTop
+        Some(GlyphSpace::TopDownTop)
     );
+}
+
+// ------------------------------------------------------ to_page_frame
+// Pins PG09 to PG13: a page whose /MediaBox corner is not the origin. Content
+// stream coordinates take no notice of where the media box sits, so the glyphs
+// and the quads arrive in the same absolute space — but `text_under_quads`
+// subtracts the corner from every quad, and for a while nothing subtracted it
+// from the glyphs. Twenty points of disagreement is two lines of body text,
+// and it matched nothing at all.
+
+#[test]
+fn moves_glyphs_off_the_media_box_corner() {
+    let chars = to_page_frame(vec![glyph('A', 80.0, 120.0, 6.0, 12.0)], 20.0, 20.0);
+    assert_eq!(chars[0].origin_x, 60.0);
+    assert_eq!(chars[0].origin_y, 100.0);
+    // The bbox has to move with the origin: `covers` measures x from it.
+    assert_eq!(chars[0].bbox.x, 60.0);
+    assert_eq!(chars[0].bbox.y, 100.0);
+}
+
+#[test]
+fn leaves_glyphs_alone_at_the_origin() {
+    let chars = to_page_frame(vec![glyph('A', 80.0, 120.0, 6.0, 12.0)], 0.0, 0.0);
+    assert_eq!((chars[0].origin_x, chars[0].origin_y), (80.0, 120.0));
 }
 
 // ------------------------------------------------------------ covers
@@ -434,7 +466,7 @@ fn extracts_only_the_glyphs_under_the_quad() {
     let chars = vec![line_a, line_b];
     let quads = vec![quad(50.0, 150.0, 100.0, 112.0)];
 
-    let out = text_under_quads(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
+    let out = quad_texts(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
     assert_eq!(out, vec!["A".to_string()]);
 }
 
@@ -450,7 +482,7 @@ fn sorts_quads_into_reading_order() {
         quad(50.0, 150.0, 100.0, 112.0), // upper line
     ];
 
-    let out = text_under_quads(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
+    let out = quad_texts(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
     assert_eq!(out, vec!["A".to_string(), "B".to_string()]);
 }
 
@@ -461,7 +493,7 @@ fn empty_quad_yields_an_empty_string_not_a_dropped_entry() {
     let chars = vec![glyph('A', 60.0, 100.0, 6.0, 12.0)];
     let quads = vec![quad(400.0, 500.0, 100.0, 112.0)];
 
-    let out = text_under_quads(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
+    let out = quad_texts(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
     assert_eq!(out.len(), 1);
     assert_eq!(out[0], "");
 }
@@ -479,7 +511,7 @@ fn a_glyph_is_claimed_by_only_one_quad() {
         quad(50.0, 150.0, 97.0, 109.0),  // top-down 91..103, also contains it
     ];
 
-    let out = text_under_quads(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
+    let out = quad_texts(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
     // The two bands overlap vertically, so they form one line group; the glyph
     // appears once in it rather than twice.
     assert_eq!(out, vec!["i".to_string()]);
@@ -501,7 +533,7 @@ fn merges_per_glyph_quads_on_one_line() {
         quad(21.0, 29.0, 100.0, 112.0),
     ];
 
-    let out = text_under_quads(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
+    let out = quad_texts(&quads, &chars, SPACE, 0.0, 0.0, 200.0, 0.5, 0.25, false);
     assert_eq!(out, vec!["abc".to_string()]);
 }
 
@@ -512,35 +544,303 @@ fn honours_a_non_zero_mediabox_origin() {
     let chars = vec![glyph('A', 60.0, 100.0, 6.0, 12.0)];
     let quads = vec![quad(70.0, 170.0, 120.0, 132.0)];
 
-    let out = text_under_quads(&quads, &chars, SPACE, 20.0, 20.0, 200.0, 0.5, 0.25, false);
+    let out = quad_texts(&quads, &chars, SPACE, 20.0, 20.0, 200.0, 0.5, 0.25, false);
     assert_eq!(out, vec!["A".to_string()]);
+}
+
+// --------------------------------------------------- ligature folding
+// Folding is on by default and confined to U+FB00–U+FB06. It runs on glyph
+// text on its way into a line — after quad matching, so a ligature is still
+// atomic for coverage, and after /ActualText, so a declaration is never undone.
+
+fn recovered(chars: &[TextChar], quads: &[[f64; 8]], fold: bool) -> Vec<String> {
+    text_under_quads(
+        quads,
+        chars,
+        &Matching {
+            space: SPACE,
+            frame: Frame {
+                x0: 0.0,
+                y0: 0.0,
+                height: 200.0,
+            },
+            min_overlap: 0.5,
+            space_gap: 0.25,
+            fold_ligatures: fold,
+            debug: false,
+            units: &[],
+        },
+    )
+    .into_iter()
+    .map(|l| l.text)
+    .collect()
+}
+
+#[test]
+fn folds_a_presentation_form_to_its_letters() {
+    // Pins text/ TX1A. The font maps its ff glyph to U+FB00 through
+    // /ToUnicode, and a note reading `tariﬀ` cannot be searched for or pasted
+    // anywhere useful.
+    let chars = vec![glyph('\u{FB00}', 60.0, 100.0, 6.0, 12.0)];
+    let quads = vec![quad(50.0, 150.0, 100.0, 112.0)];
+    assert_eq!(recovered(&chars, &quads, true), vec!["ff"]);
+}
+
+#[test]
+fn keep_ligatures_leaves_the_glyph_as_the_font_maps_it() {
+    let chars = vec![glyph('\u{FB00}', 60.0, 100.0, 6.0, 12.0)];
+    let quads = vec![quad(50.0, 150.0, 100.0, 112.0)];
+    assert_eq!(recovered(&chars, &quads, false), vec!["\u{FB00}"]);
+}
+
+#[test]
+fn folding_does_not_touch_letters_that_were_once_ligatures() {
+    // Pins text/ TX6A, and it passed before folding existed only because
+    // nothing was folded at all. Æ is a letter of Danish, œ of French — and
+    // Unicode names it LATIN SMALL LIGATURE OE, which is the trap — and ß of
+    // German. cli-pdf-extract folds Æ to `fl`.
+    let chars = vec![
+        glyph('Æ', 60.0, 100.0, 6.0, 12.0),
+        glyph('œ', 66.0, 100.0, 6.0, 12.0),
+        glyph('ß', 72.0, 100.0, 6.0, 12.0),
+    ];
+    let quads = vec![quad(50.0, 150.0, 100.0, 112.0)];
+    assert_eq!(recovered(&chars, &quads, true), vec!["Æœß"]);
+}
+
+#[test]
+fn folding_divides_the_advance_between_the_letters() {
+    // The cursor after a folded glyph has to land where the glyph's own
+    // advance ended, or the gap to the next character is mismeasured and
+    // `staﬀ on` comes out as `sta f f on`. Threshold here is 10 * 0.25.
+    let chars = vec![
+        glyph('\u{FB00}', 60.0, 100.0, 6.0, 12.0),
+        glyph('x', 66.0, 100.0, 6.0, 12.0),
+    ];
+    let quads = vec![quad(50.0, 150.0, 100.0, 112.0)];
+    assert_eq!(recovered(&chars, &quads, true), vec!["ffx"]);
+}
+
+// ------------------------------------------------- declared spans
+// A declared span is atomic: a quad covering part of one cannot be told which
+// part of the declared text corresponds, so it is emitted whole above the
+// threshold and omitted entirely below it, and once however many quads touch
+// it. These use BottomUp, unlike the tests above, because that is the
+// convention the declarations share with pdf_oxide's glyphs: `Frame` measures
+// a segment baseline upward from the media box corner.
+
+/// A declaration covering one line.
+fn declared(text: &str, x: f32, baseline: f32, advance: f32) -> Unit {
+    Unit {
+        text: text.to_string(),
+        segments: vec![actual_text::Segment {
+            x,
+            baseline,
+            advance,
+        }],
+    }
+}
+
+fn page_frame() -> Frame {
+    Frame {
+        x0: 0.0,
+        y0: 0.0,
+        height: 200.0,
+    }
+}
+
+fn declared_lines(quads: &[[f64; 8]], chars: &[TextChar], units: &[Unit]) -> Vec<String> {
+    text_under_quads(
+        quads,
+        chars,
+        &Matching {
+            space: GlyphSpace::BottomUp,
+            frame: page_frame(),
+            min_overlap: 0.5,
+            space_gap: 0.25,
+            fold_ligatures: true,
+            debug: false,
+            units,
+        },
+    )
+    .into_iter()
+    .map(|l| l.text)
+    .collect()
+}
+
+#[test]
+fn a_majority_covered_declaration_is_emitted_whole() {
+    // Pins AT5A. The quad stops inside the span, three quarters of the way
+    // along, and the answer is the whole declared string — not the part of it
+    // the quad reached, which would be a guess about correspondence the
+    // producer has said does not exist.
+    let chars = vec![glyph('A', 50.0, 100.0, 6.0, 12.0)];
+    let quads = vec![quad(50.0, 130.0, 100.0, 112.0)];
+    let units = vec![declared("Figure 3", 100.0, 100.0, 40.0)];
+
+    assert_eq!(declared_lines(&quads, &chars, &units), vec!["A Figure 3"]);
+}
+
+#[test]
+fn a_minority_covered_declaration_is_omitted_entirely() {
+    // Pins AT5B, the mirror. A quarter covered, so nothing of the declaration
+    // appears — and in particular not the glyphs underneath it, which is the
+    // tempting third option and is wrong.
+    let chars = vec![glyph('A', 50.0, 100.0, 6.0, 12.0)];
+    let quads = vec![quad(50.0, 110.0, 100.0, 112.0)];
+    let units = vec![declared("Figure 3", 100.0, 100.0, 40.0)];
+
+    assert_eq!(declared_lines(&quads, &chars, &units), vec!["A"]);
+}
+
+#[test]
+fn a_declaration_across_two_quads_is_emitted_once() {
+    // Pins AT7A's first failure mode: one declaration broken across a line
+    // break is still one declaration, so applying it per quad says the same
+    // words twice.
+    let chars = vec![
+        glyph('A', 50.0, 100.0, 6.0, 12.0), // upper line
+        glyph('B', 10.0, 88.0, 6.0, 12.0),  // lower line
+    ];
+    let quads = vec![
+        quad(50.0, 140.0, 100.0, 112.0), // upper line, over the first segment
+        quad(5.0, 60.0, 88.0, 100.0),    // lower line, over the second
+    ];
+    let units = vec![Unit {
+        text: "Figure 3".to_string(),
+        segments: vec![
+            actual_text::Segment {
+                x: 100.0,
+                baseline: 100.0,
+                advance: 40.0,
+            },
+            actual_text::Segment {
+                x: 10.0,
+                baseline: 88.0,
+                advance: 20.0,
+            },
+        ],
+    }];
+
+    let out = declared_lines(&quads, &chars, &units);
+    assert_eq!(out, vec!["A Figure 3", "B"]);
+    assert_eq!(
+        out.iter().filter(|l| l.contains("Figure 3")).count(),
+        1,
+        "the declared text appeared more than once"
+    );
+}
+
+#[test]
+fn a_declared_span_is_never_folded() {
+    // Pins AT2A: the document declares U+FB01, so the default fold must not
+    // undo it. Folding is a text-recovery transform, and declared text was
+    // not recovered from anything — the producer stated it. The two are only
+    // told apart by running the family both ways: under --keep-ligatures,
+    // AT1A stays `tariffs` because the declaration is authoritative while
+    // AT1B becomes `tariﬀs` because the fold is off.
+    let chars = vec![glyph('A', 50.0, 100.0, 6.0, 12.0)];
+    let quads = vec![quad(50.0, 130.0, 100.0, 112.0)];
+    let units = vec![declared("\u{FB01}xed", 100.0, 100.0, 40.0)];
+
+    assert_eq!(
+        declared_lines(&quads, &chars, &units),
+        vec!["A \u{FB01}xed"]
+    );
+}
+
+#[test]
+fn synthesised_characters_span_the_declared_extent() {
+    // The characters are spread across the extent of the glyphs they replace,
+    // which is safe only because the decision to emit was taken for the unit
+    // as a whole: they are never matched individually.
+    let template = glyph('x', 0.0, 100.0, 6.0, 10.0);
+    let out = actual_text::synthesise(
+        &template,
+        "abcd",
+        actual_text::Segment {
+            x: 100.0,
+            baseline: 100.0,
+            advance: 40.0,
+        },
+        page_frame(),
+    );
+    assert_eq!(out.len(), 4);
+    assert_eq!(out[0].origin_x, 100.0);
+    assert_eq!(out[3].origin_x, 130.0);
+    assert_eq!(out[0].rendered_advance, 10.0);
+    // The baseline comes from the segment, not the template, so a template
+    // borrowed from another line cannot drag the text off its own.
+    assert_eq!(out[0].origin_y, 100.0);
 }
 
 // -------------------------------------------------------- join_lines
 
 #[test]
+fn an_empty_declaration_joins_the_two_sides_contiguously() {
+    // Pins AT4A. The hyphen carries /ActualText (): the document says that
+    // glyph stands for no character. The two sides are therefore contiguous —
+    // no space and no hyphen — and the same under --keep-hyphens, because
+    // there is nothing left to guess. Contrast text/ TX4, where the same break
+    // in an untagged PDF is genuinely ambiguous and no setting is right for
+    // both cases.
+    //
+    // Note the coverage is zero: the suppressed hyphen sits at x=116..120 and
+    // the quad on that line ends at 120, so the producer selected up to the
+    // glyph, not through it. What makes the join contiguous is that the thing
+    // standing for nothing is adjacent to the break.
+    let lines = vec![
+        Line {
+            text: "infra".to_string(),
+            band: (88.0, 100.0),
+            right: Some(120.0),
+        },
+        Line {
+            text: "structure".to_string(),
+            band: (100.0, 112.0),
+            right: Some(80.0),
+        },
+    ];
+    let units = vec![declared("", 116.0, 100.0, 4.0)];
+
+    assert_eq!(
+        join_lines(&lines, false, &units, page_frame()),
+        "infrastructure"
+    );
+    assert_eq!(
+        join_lines(&lines, true, &units, page_frame()),
+        "infrastructure"
+    );
+    // Without the declaration the same two lines are just two lines.
+    assert_eq!(
+        join_lines(&lines, false, &[], page_frame()),
+        "infra structure"
+    );
+}
+
+#[test]
 fn joins_hyphenated_words_across_lines() {
     let lines = vec!["soft-".to_string(), "ware".to_string()];
-    assert_eq!(join_lines(&lines, false), "software");
+    assert_eq!(join_plain(&lines, false), "software");
 }
 
 #[test]
 fn keep_hyphens_preserves_the_break() {
     let lines = vec!["soft-".to_string(), "ware".to_string()];
-    assert_eq!(join_lines(&lines, true), "soft- ware");
+    assert_eq!(join_plain(&lines, true), "soft- ware");
 }
 
 #[test]
 fn does_not_join_when_the_next_line_starts_uppercase() {
     // "Basel-" + "Committee" is a real hyphen, not a line break.
     let lines = vec!["Basel-".to_string(), "Committee".to_string()];
-    assert_eq!(join_lines(&lines, false), "Basel- Committee");
+    assert_eq!(join_plain(&lines, false), "Basel- Committee");
 }
 
 #[test]
 fn separates_plain_lines_with_one_space() {
     let lines = vec!["first".to_string(), "second".to_string()];
-    assert_eq!(join_lines(&lines, false), "first second");
+    assert_eq!(join_plain(&lines, false), "first second");
 }
 
 // ---------------------------------------------------- collapse_spaces

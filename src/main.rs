@@ -5,12 +5,14 @@
 //! intersecting each quad with the page's glyph boxes. Text and FreeText
 //! annotations have no quads and yield comment-only records.
 //!
-//! Two pdf_oxide behaviours are worked around here:
+//! Three pdf_oxide behaviours are worked around here:
 //!   * /Contents is decoded with from_utf8_lossy, which mangles the UTF-16BE
 //!     strings most annotators write. We re-decode from `raw_dict`.
 //!   * The glyph coordinate convention is not reliably documented, so rather
 //!     than trusting a doc comment we infer it from the glyphs themselves
 //!     (see `GlyphSpace::infer`) and show the evidence under --debug-geometry.
+//!   * /ActualText is re-encoded through the font in character mode, which
+//!     corrupts every declared span. See `actual_text`.
 
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -30,6 +32,12 @@ mod markdown;
 use markdown::{Descriptor, Numbering, Style};
 
 mod date;
+
+mod pdf_string;
+use pdf_string::Encoding;
+
+mod actual_text;
+use actual_text::{Frame, Unit};
 
 #[derive(Copy, Clone, PartialEq, ValueEnum)]
 enum ShowArg {
@@ -110,6 +118,11 @@ struct Args {
     #[arg(long)]
     keep_hyphens: bool,
 
+    /// Keep ligature presentation forms (ﬁ, ﬀ) as the font maps them, instead
+    /// of folding them to the letters they stand for
+    #[arg(long)]
+    keep_ligatures: bool,
+
     /// Keep each quad on its own line instead of joining into one passage
     #[arg(long)]
     split_quads: bool,
@@ -155,6 +168,15 @@ enum GlyphSpace {
 }
 
 impl GlyphSpace {
+    /// The convention to assume when there is nothing to infer from.
+    ///
+    /// pdf_oxide builds every glyph from the text matrix in unrotated user
+    /// space, which is y-up, so this is the only convention it ever produces.
+    /// The others exist because the crate's own `Rect` documentation describes
+    /// a top-down box and a future version may deliver one; they are not
+    /// candidates for a document we know nothing about.
+    const FALLBACK: GlyphSpace = GlyphSpace::BottomUp;
+
     /// Infer the `bbox` convention from the glyphs on a page.
     ///
     /// pdf_oxide builds every glyph as `Rect::new(origin_x, origin_y, w, h)`,
@@ -166,13 +188,24 @@ impl GlyphSpace {
     /// Extraction order runs roughly top-to-bottom in a normal document, so
     /// comparing the first glyphs' y against the last glyphs' y tells us which
     /// way y grows.
-    fn infer(chars: &[TextChar], page_height: f32, debug: bool) -> Self {
+    ///
+    /// `None` when the page carries too few glyphs to compare a top against a
+    /// bottom. Returning a convention there would be a guess wearing the same
+    /// clothes as a measurement, which is how the `page/` family came to be
+    /// matched in a convention nothing in the document supported.
+    fn infer(chars: &[TextChar], page_height: f32, debug: bool) -> Option<Self> {
         let usable: Vec<&TextChar> = chars
             .iter()
             .filter(|c| c.bbox.height > 0.1 && !c.char.is_whitespace())
             .collect();
         if usable.len() < 20 {
-            return GlyphSpace::TopDownBottom;
+            if debug {
+                eprintln!(
+                    "geometry: {} usable glyphs, too few to infer from",
+                    usable.len()
+                );
+            }
+            return None;
         }
 
         let n = (usable.len() / 20).max(3);
@@ -225,7 +258,7 @@ impl GlyphSpace {
                  if bottom edge: {escapes_as_bottom} => inferred {space:?}"
             );
         }
-        space
+        Some(space)
     }
 
     /// Glyph box as (top, bottom), measured downward from the page top.
@@ -236,6 +269,30 @@ impl GlyphSpace {
             GlyphSpace::BottomUp => (page_height - (b.y + b.height), page_height - b.y),
         }
     }
+}
+
+/// Move glyphs out of user space and into the page frame `text_under_quads`
+/// works in: same units, origin at the media box corner.
+///
+/// A content stream's coordinates are absolute user space and take no notice
+/// of where the media box sits (ISO 32000-1, 8.3.2.3), so a page with
+/// `/MediaBox [20 20 615 862]` draws its text at exactly the coordinates a
+/// page at `[0 0 595 842]` does. `text_under_quads` subtracts the corner from
+/// every quad, which is right — but the glyphs then have to lose it too, or
+/// the two are compared in frames that differ by the origin. Twenty points on
+/// PG09 to PG13 of the `page/` family: two lines of body text, and nothing
+/// matched.
+fn to_page_frame(mut chars: Vec<TextChar>, media_x0: f32, media_y0: f32) -> Vec<TextChar> {
+    if media_x0 == 0.0 && media_y0 == 0.0 {
+        return chars;
+    }
+    for c in &mut chars {
+        c.bbox.x -= media_x0;
+        c.bbox.y -= media_y0;
+        c.origin_x -= media_x0;
+        c.origin_y -= media_y0;
+    }
+    chars
 }
 
 /// The glyph's ink extent as (top, bottom), measured downward from the page top.
@@ -316,34 +373,57 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let page_count = doc.page_count()?;
     let sections = section_titles(&doc, page_count);
 
-    // Infer the glyph convention once, from the first page with enough text.
-    let space = match args.geometry {
-        GeometryArg::TopDownTop => GlyphSpace::TopDownTop,
-        GeometryArg::TopDownBottom => GlyphSpace::TopDownBottom,
-        GeometryArg::BottomUp => GlyphSpace::BottomUp,
+    // Infer the glyph convention once, from the page in the sample that
+    // carries the most text.
+    //
+    // This used to take the first page past 200 glyphs and, when no page
+    // reached it, keep whatever the accumulator had been initialised to. A
+    // document of short pages therefore matched every quad in a convention no
+    // measurement supported: the `page/` fixture family runs 124 to 179
+    // glyphs a page and lost all seventeen items that way, the control
+    // included. Sample the richest page instead, and treat "no evidence" as a
+    // state to report rather than a value to assume.
+    let (space, inferred) = match args.geometry {
+        GeometryArg::TopDownTop => (GlyphSpace::TopDownTop, true),
+        GeometryArg::TopDownBottom => (GlyphSpace::TopDownBottom, true),
+        GeometryArg::BottomUp => (GlyphSpace::BottomUp, true),
         GeometryArg::Auto => {
-            let mut inferred = GlyphSpace::TopDownTop;
-            for page in 0..page_count.min(10) {
-                let chars = doc.extract_chars(page).unwrap_or_default();
-                if chars.len() >= 200 {
-                    let height = doc
-                        .get_page_media_box(page)
-                        .map(|(_, y0, _, y1)| y1 - y0)
-                        .unwrap_or(792.0);
-                    inferred = GlyphSpace::infer(&chars, height, args.debug_geometry);
-                    break;
+            let richest = (0..page_count.min(10))
+                .map(|page| (doc.extract_chars(page).map(|c| c.len()).unwrap_or(0), page))
+                .max_by_key(|&(len, _)| len)
+                .filter(|&(len, _)| len > 0);
+
+            let measured = richest.and_then(|(len, page)| {
+                let (mx0, my0, _, my1) = doc
+                    .get_page_media_box(page)
+                    .unwrap_or((0.0, 0.0, 612.0, 792.0));
+                let chars = to_page_frame(doc.extract_chars(page).unwrap_or_default(), mx0, my0);
+                if args.debug_geometry {
+                    eprintln!("geometry: inferring from page {} ({len} glyphs)", page + 1);
                 }
+                GlyphSpace::infer(&chars, my1 - my0, args.debug_geometry)
+            });
+
+            match measured {
+                Some(space) => (space, true),
+                None => (GlyphSpace::FALLBACK, false),
             }
-            inferred
         }
     };
     if args.debug_geometry {
-        eprintln!("geometry: using {space:?}");
+        eprintln!(
+            "geometry: using {space:?} ({})",
+            if inferred { "measured" } else { "assumed" }
+        );
     }
+    // Reported at the point it can do damage rather than here: a document of
+    // comment-only annotations never matches a quad and does not care.
+    let mut geometry_warned = inferred;
 
     let mut records = Vec::new();
     let mut total_parsed = 0usize;
     let mut total_dropped = 0usize;
+    let mut encoding_notes = EncodingNotes::default();
 
     for page in 0..page_count {
         let annots = doc.get_annotations(page)?;
@@ -372,17 +452,39 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let (mx0, my0, _mx1, my1) = doc.get_page_media_box(page)?;
         let page_height = my1 - my0;
 
-        if doc.get_page_rotation(page).unwrap_or(0) % 360 != 0 {
-            eprintln!(
-                "warning: page {} is rotated; quad matching unreliable",
-                page + 1
-            );
-        }
+        // /Rotate is not applied to anything here, and that is deliberate: it
+        // is a display attribute, so a rotated page's glyphs and its
+        // /QuadPoints are both still in unrotated user space and match each
+        // other without a transform. All eight rotated pages of the `page/`
+        // family, and the /Rotate -90 case, come out right by doing nothing.
+        // Applying per-rotation offsets is where pdfannots2json's sign errors
+        // live. Kept only to annotate a failure that has already happened.
+        let rotation = doc.get_page_rotation(page).unwrap_or(0);
 
+        // /ActualText, if this page declares any. Runs on the glyph list in
+        // user space, before `to_page_frame`, because that is the space the
+        // content stream measures in.
+        let mut units: Vec<Unit> = Vec::new();
         let chars: Option<Vec<TextChar>> = if annots.iter().any(has_quads) {
-            Some(doc.extract_chars(page)?)
+            let mut cs = doc.extract_chars(page)?;
+            let content = doc.get_page_content_data(page).unwrap_or_default();
+            if actual_text::present(&content) {
+                let fonts = page_font_widths(&doc, page);
+                let (decls, unsupported) = actual_text::scan(&content, &fonts);
+                let (found, broken) = actual_text::repair(&mut cs, &decls);
+                units = found;
+                for note in unsupported.into_iter().chain(broken) {
+                    eprintln!("warning: page {}: {note}", page + 1);
+                }
+            }
+            Some(to_page_frame(cs, mx0, my0))
         } else {
             None
+        };
+        let frame = Frame {
+            x0: mx0,
+            y0: my0,
+            height: page_height,
         };
 
         if args.debug_geometry {
@@ -399,31 +501,51 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     let lines = text_under_quads(
                         quads,
                         chars,
-                        space,
-                        mx0,
-                        my0,
-                        page_height,
-                        args.min_overlap,
-                        args.space_gap,
-                        args.debug_quads,
+                        &Matching {
+                            space,
+                            frame,
+                            min_overlap: args.min_overlap,
+                            space_gap: args.space_gap,
+                            fold_ligatures: !args.keep_ligatures,
+                            debug: args.debug_quads,
+                            units: &units,
+                        },
                     );
-                    let empty = lines.iter().filter(|l| l.is_empty()).count();
+                    let empty = lines.iter().filter(|l| l.text.is_empty()).count();
                     if empty > 0 {
+                        if !geometry_warned {
+                            eprintln!(
+                                "warning: too little text to measure the glyph coordinate \
+                                 convention; assumed {space:?}. Set --geometry explicitly."
+                            );
+                            geometry_warned = true;
+                        }
                         eprintln!(
-                            "warning: page {}: {empty}/{} quads matched no glyphs \
+                            "warning: page {}: {empty}/{} quads matched no glyphs{} \
                              (try --min-overlap or --geometry)",
                             page + 1,
-                            quads.len()
+                            quads.len(),
+                            if rotation % 360 != 0 {
+                                format!("; page carries /Rotate {rotation}")
+                            } else {
+                                String::new()
+                            }
                         );
                     }
-                    let nonempty: Vec<String> =
-                        lines.into_iter().filter(|l| !l.is_empty()).collect();
+                    let nonempty: Vec<Line> =
+                        lines.into_iter().filter(|l| !l.text.is_empty()).collect();
                     if nonempty.is_empty() {
                         None
                     } else if args.split_quads {
-                        Some(nonempty.join("\n"))
+                        Some(
+                            nonempty
+                                .iter()
+                                .map(|l| l.text.clone())
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        )
                     } else {
-                        Some(join_lines(&nonempty, args.keep_hyphens))
+                        Some(join_lines(&nonempty, args.keep_hyphens, &units, frame))
                     }
                 }
                 _ => None,
@@ -432,8 +554,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             // pdf_oxide's own `contents`/`author` go through from_utf8_lossy,
             // so prefer the raw dictionary and only fall back when the key is
             // genuinely absent.
-            let comment = choose_text(raw_text(&doc, a, "Contents"), a.contents.as_deref());
-            let author = choose_text(raw_text(&doc, a, "T"), a.author.as_deref());
+            let comment = choose_text(
+                raw_text(&doc, a, "Contents", &mut encoding_notes),
+                a.contents.as_deref(),
+            );
+            let author = choose_text(
+                raw_text(&doc, a, "T", &mut encoding_notes),
+                a.author.as_deref(),
+            );
 
             if covered_text.is_none() && comment.is_none() && !args.keep_empty {
                 continue;
@@ -459,6 +587,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "warning: {total_dropped} of {} annotations in /Annots were not parsed \
              (rerun with --stats)",
             total_parsed + total_dropped
+        );
+    }
+
+    if encoding_notes.sniffed_utf8 > 0 {
+        eprintln!(
+            "note: {} string(s) carried no byte order mark and were read as UTF-8 \
+             rather than PDFDocEncoding",
+            encoding_notes.sniffed_utf8
+        );
+    }
+    if encoding_notes.undefined_bytes > 0 {
+        eprintln!(
+            "note: {} byte(s) fell on PDFDocEncoding slots the spec leaves undefined \
+             (0x7F, 0x9F, 0xAD) and were read as Latin-1",
+            encoding_notes.undefined_bytes
         );
     }
 
@@ -540,8 +683,22 @@ enum RawString {
     Text(String),
 }
 
+/// What had to be assumed while decoding this document's strings.
+///
+/// Counted rather than warned about at the point of decoding: one line per
+/// document is a diagnostic, one line per annotation is noise. Folds into the
+/// structured `Report` when that lands.
+#[derive(Default)]
+struct EncodingNotes {
+    /// Strings with no byte order mark, read as UTF-8 rather than as the
+    /// PDFDocEncoding the spec prescribes.
+    sniffed_utf8: usize,
+    /// Bytes on PDFDocEncoding slots ISO 32000-1 Table D.2 leaves undefined.
+    undefined_bytes: usize,
+}
+
 /// Decode a text string straight from the raw annotation dictionary.
-fn raw_text(doc: &PdfDocument, a: &Annotation, key: &str) -> RawString {
+fn raw_text(doc: &PdfDocument, a: &Annotation, key: &str, notes: &mut EncodingNotes) -> RawString {
     let Some(dict): Option<&HashMap<String, Object>> = a.raw_dict.as_ref() else {
         return RawString::Absent;
     };
@@ -554,7 +711,13 @@ fn raw_text(doc: &PdfDocument, a: &Annotation, key: &str) -> RawString {
     let Some(bytes) = resolved.as_string() else {
         return RawString::Absent;
     };
-    let s = decode_pdf_string(bytes).trim().to_string();
+    let decoded = pdf_string::decode(bytes);
+    if decoded.encoding == Encoding::Utf8Sniffed {
+        notes.sniffed_utf8 += 1;
+    }
+    notes.undefined_bytes += decoded.undefined;
+
+    let s = decoded.text.trim().to_string();
     if s.is_empty() {
         RawString::Empty
     } else {
@@ -573,31 +736,14 @@ fn choose_text(raw: RawString, fallback: Option<&str>) -> Option<String> {
     }
 }
 
-/// PDF text strings are UTF-16 with a BOM, or PDFDocEncoded (Latin-1 across the
-/// printable range). ISO 32000-1, 7.9.2.2.
+/// The text of a decoded PDF string, discarding what had to be assumed to get
+/// it. See [`pdf_string`] for the encodings and the table.
+///
+/// Only the tests reach for this: production code wants the whole `Decoded`,
+/// so that an assumption can be reported instead of silently made.
+#[cfg(test)]
 fn decode_pdf_string(bytes: &[u8]) -> String {
-    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
-        let units: Vec<u16> = rest
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| u16::from_be_bytes(*c))
-            .collect();
-        String::from_utf16_lossy(&units)
-    } else if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
-        let units: Vec<u16> = rest
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
-        String::from_utf16_lossy(&units)
-    } else if let Ok(s) = std::str::from_utf8(bytes) {
-        // Off spec, but some producers write bare UTF-8.
-        s.to_string()
-    } else {
-        bytes.iter().map(|&b| b as char).collect()
-    }
+    pdf_string::decode(bytes).text
 }
 
 fn has_quads(a: &Annotation) -> bool {
@@ -628,20 +774,45 @@ fn subtype_name(s: &AnnotationSubtype) -> &'static str {
     }
 }
 
-/// One string per quad, in quad order. Empty strings mark quads that matched
-/// nothing, so a geometry problem stays visible instead of being swallowed.
-#[allow(clippy::too_many_arguments)]
-fn text_under_quads(
-    quads: &[[f64; 8]],
-    chars: &[TextChar],
+/// What one quad, or one merged group of quads, recovered.
+///
+/// `right` is where the covered text ends, which the join rule needs: an empty
+/// `/ActualText` declaration sitting at that edge says the glyph there stands
+/// for no character, so the next line continues without a space.
+struct Line {
+    text: String,
+    band: (f32, f32),
+    right: Option<f32>,
+}
+
+/// Everything the matcher needs beyond the quads and the glyphs.
+///
+/// `frame` carries the media box corner and height, so it replaces the three
+/// coordinates that used to be passed separately — there is now one place a
+/// page's geometry comes from, and no way for a caller to hand the quads one
+/// origin and the glyphs another.
+struct Matching<'a> {
     space: GlyphSpace,
-    media_x0: f32,
-    media_y0: f32,
-    page_height: f32,
+    frame: Frame,
     min_overlap: f32,
     space_gap: f32,
+    /// Fold U+FB00–U+FB06 to the letters they stand for. See
+    /// [`ligature_expansion`].
+    fold_ligatures: bool,
     debug: bool,
-) -> Vec<String> {
+    units: &'a [Unit],
+}
+
+/// One line per quad, in quad order. An empty `text` marks a quad that matched
+/// nothing, so a geometry problem stays visible instead of being swallowed.
+///
+/// `chars` must already be in the page frame — see [`to_page_frame`]. Quads
+/// arrive in user space and are moved into it here, as do declared units.
+fn text_under_quads(quads: &[[f64; 8]], chars: &[TextChar], m: &Matching) -> Vec<Line> {
+    let (media_x0, media_y0, page_height) = (m.frame.x0, m.frame.y0, m.frame.height);
+    let (space, min_overlap, space_gap, debug) = (m.space, m.min_overlap, m.space_gap, m.debug);
+    let units = m.units;
+    let frame = m.frame;
     // Quad bands in top-down page space. Producers do not agree on the order
     // of the /QuadPoints array — some store it bottom-up — so sort the bands
     // into reading order ourselves rather than trusting the array.
@@ -665,8 +836,17 @@ fn text_under_quads(
             .then(a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
     });
 
-    // (band top, band bottom, glyph indices) per line group.
-    let mut groups: Vec<(f32, f32, Vec<usize>)> = Vec::new();
+    // (band top, band bottom, recovered characters, declared characters).
+    //
+    // Glyphs are matched unfolded and folded on the way in here, which is the
+    // only order that keeps both rules: a glyph is atomic for coverage — a
+    // ligature is one glyph and a quad either takes it or does not — while the
+    // text that comes out is the letters it stands for.
+    let mut groups: Vec<(f32, f32, Vec<TextChar>, Vec<TextChar>)> = Vec::new();
+    // A declaration is placed once, however many quads touch it: it declares
+    // what the whole run means, so a second emission is a second reading of
+    // the same words.
+    let mut placed = vec![false; units.len()];
     // A glyph belongs to exactly one quad. Without this, a character close to
     // the boundary of two overlapping bands — a stacked limit sitting within
     // the main line's slack, say — is emitted twice.
@@ -718,19 +898,59 @@ fn text_under_quads(
             }
         }
         claimed.extend(picked.iter().copied());
+
+        let mut recovered: Vec<TextChar> = Vec::new();
+        for &i in &picked {
+            let glyph = &chars[i];
+            match ligature_expansion(glyph.char).filter(|_| m.fold_ligatures) {
+                Some(letters) => recovered.extend(fold_glyph(glyph, letters)),
+                None => recovered.push(glyph.clone()),
+            }
+        }
+
+        // Declared spans, judged as wholes. A quad covering part of one cannot
+        // be told which part of the declared text corresponds, so it is
+        // emitted entire above the threshold and omitted entirely below it.
+        let mut declared: Vec<TextChar> = Vec::new();
+        for (ui, unit) in units.iter().enumerate() {
+            if placed[ui] || unit.text.is_empty() {
+                continue;
+            }
+            let (fraction, segment) = unit.coverage((qtop, qbottom), (qx0, qx1), frame);
+            if fraction < 0.5 {
+                continue;
+            }
+            let Some(segment) = segment else { continue };
+            // Font, size and colour come from a real glyph on the same line
+            // where there is one: the declared text stands in for that text.
+            let template = picked.first().map(|&i| &chars[i]).or_else(|| chars.first());
+            if let Some(template) = template {
+                declared.extend(actual_text::synthesise(
+                    template, &unit.text, segment, frame,
+                ));
+                placed[ui] = true;
+            }
+        }
+        if debug && !declared.is_empty() {
+            eprintln!(
+                "  declared span placed: {:?}",
+                declared.iter().map(|c| c.char).collect::<String>()
+            );
+        }
         // Merge this band into the previous line group when the two overlap
         // vertically. Some producers emit one quad per glyph rather than one
         // per line — Papers does on rotated pages — and treating each as its
         // own line inserts a space between every character. Assembling the
         // union instead lets order_reading space them from the actual gaps.
         let merged = match groups.last_mut() {
-            Some((gtop, gbottom, hits)) => {
+            Some((gtop, gbottom, hits, extra)) => {
                 let overlap = (qbottom.min(*gbottom) - qtop.max(*gtop)).max(0.0);
                 let shorter = (qbottom - qtop).min(*gbottom - *gtop).max(1.0);
                 if overlap / shorter > 0.5 {
                     *gtop = gtop.min(qtop);
                     *gbottom = gbottom.max(qbottom);
-                    hits.extend(picked.iter().copied());
+                    hits.append(&mut recovered);
+                    extra.append(&mut declared);
                     true
                 } else {
                     false
@@ -739,15 +959,91 @@ fn text_under_quads(
             None => false,
         };
         if !merged {
-            groups.push((qtop, qbottom, picked));
+            groups.push((qtop, qbottom, recovered, declared));
         }
     }
 
     groups
         .into_iter()
-        .map(|(_, _, picked)| {
-            let hits: Vec<&TextChar> = picked.iter().map(|&i| &chars[i]).collect();
-            collapse_spaces(order_reading(&hits, space, page_height, space_gap).trim())
+        .map(|(top, bottom, recovered, declared)| {
+            let mut hits: Vec<&TextChar> = recovered.iter().collect();
+            hits.extend(declared.iter());
+            let right = hits
+                .iter()
+                .map(|c| c.origin_x + c.rendered_advance)
+                .fold(f32::NEG_INFINITY, f32::max);
+            Line {
+                text: collapse_spaces(order_reading(&hits, space, page_height, space_gap).trim()),
+                band: (top, bottom),
+                right: (right > f32::NEG_INFINITY).then_some(right),
+            }
+        })
+        .collect()
+}
+
+/// The letters a ligature presentation form stands for, or `None` if the
+/// character is not one.
+///
+/// The fold set is the whole of the difficulty, and it is exactly U+FB00 to
+/// U+FB06. That block, Alphabetic Presentation Forms, exists for legacy
+/// round-tripping and holds no letter of any language. A note reading `tariﬀ`
+/// cannot be searched for or pasted anywhere useful, which is why folding is
+/// the default rather than the option.
+///
+/// What must **not** be folded, and why each is tempting:
+///
+/// * **U+00C6/E6 (Æ/æ)** is a letter of Danish, Norwegian and Icelandic.
+///   `cli-pdf-extract` folds it to `fl` and corrupts every Danish word that
+///   contains it.
+/// * **U+0152/0153 (Œ/œ)** is a letter of French, and Unicode *names* it
+///   `LATIN SMALL LIGATURE OE`. The name records its history, not its status.
+/// * **U+00DF (ß)** is a letter of German.
+///
+/// Nor is NFKC a shortcut: it also rewrites superscript two as an ASCII `2`,
+/// which would mangle exponents throughout the papers this tool exists for.
+///
+/// U+FB05 is the one judgement call. Its constituent letters are U+017F LONG S
+/// and `t`, so that is what it folds to — U+017F is a letter, like Æ, and not
+/// this function's business. Folding it to `st` would be more useful to
+/// someone searching an early-modern text and is a second transformation, not
+/// a de-ligaturing.
+fn ligature_expansion(c: char) -> Option<&'static str> {
+    match c {
+        '\u{FB00}' => Some("ff"),
+        '\u{FB01}' => Some("fi"),
+        '\u{FB02}' => Some("fl"),
+        '\u{FB03}' => Some("ffi"),
+        '\u{FB04}' => Some("ffl"),
+        '\u{FB05}' => Some("\u{017F}t"),
+        '\u{FB06}' => Some("st"),
+        _ => None,
+    }
+}
+
+/// Split one glyph into the letters its presentation form stands for.
+///
+/// The advance is divided between them, which is what pdf_oxide already does
+/// for a `/ToUnicode` entry mapping one code to several characters. It matters
+/// for more than tidiness: `order_reading` decides where to insert a space
+/// from `origin_x + rendered_advance`, so pieces that each carried the whole
+/// advance would fabricate a gap after every ligature — `staﬀ on` becoming
+/// `staff  on` — and pieces that carried none would swallow a real space.
+fn fold_glyph(c: &TextChar, letters: &str) -> Vec<TextChar> {
+    let count = letters.chars().count().max(1) as f32;
+    let advance = c.rendered_advance / count;
+    let ink = c.bbox.width / count;
+    letters
+        .chars()
+        .enumerate()
+        .map(|(i, ch)| {
+            let mut piece = c.clone();
+            piece.char = ch;
+            piece.origin_x = c.origin_x + advance * i as f32;
+            piece.bbox.x = c.bbox.x + ink * i as f32;
+            piece.bbox.width = ink;
+            piece.advance_width = c.advance_width / count;
+            piece.rendered_advance = advance;
+            piece
         })
         .collect()
 }
@@ -947,25 +1243,104 @@ fn collapse_spaces(s: &str) -> String {
     out
 }
 
-fn join_lines(lines: &[String], keep_hyphens: bool) -> String {
+/// Join the per-quad lines into one passage.
+///
+/// Three cases at a break, in order of how much the document tells us:
+///
+/// 1. An empty `/ActualText` at the end of the earlier line. The document has
+///    said that glyph stands for no character, so the two sides are
+///    contiguous: no space and no hyphen, and `--keep-hyphens` does not change
+///    it, because there is nothing left to guess. This is `actual_text/` AT4A.
+/// 2. A trailing hyphen and a lowercase continuation. Ambiguous — a
+///    discretionary break and a compound word look identical in an untagged
+///    PDF — so `--keep-hyphens` exists and neither setting is right for every
+///    case. This is `text/` TX4, and the contrast with AT4A is the point.
+/// 3. Anything else: one space.
+fn join_lines(lines: &[Line], keep_hyphens: bool, units: &[Unit], frame: Frame) -> String {
     let mut out = String::new();
     for (i, line) in lines.iter().enumerate() {
         if i == 0 {
-            out.push_str(line);
+            out.push_str(&line.text);
+            continue;
+        }
+        let previous = &lines[i - 1];
+        let suppressed = previous.right.is_some_and(|right| {
+            units
+                .iter()
+                .any(|u| u.suppresses_break(previous.band, right, frame))
+        });
+        if suppressed {
+            out.push_str(&line.text);
             continue;
         }
         let dehyphenate = !keep_hyphens
             && (out.ends_with('-') || out.ends_with('\u{2010}'))
-            && line.chars().next().is_some_and(|c| c.is_lowercase());
+            && line.text.chars().next().is_some_and(|c| c.is_lowercase());
         if dehyphenate {
             out.pop();
-            out.push_str(line);
+            out.push_str(&line.text);
         } else {
             if !out.ends_with(' ') {
                 out.push(' ');
             }
-            out.push_str(line);
+            out.push_str(&line.text);
         }
+    }
+    out
+}
+
+/// `/Widths` for each simple font on a page, for the `/ActualText` scan.
+///
+/// Composite fonts use `/W` and a CID mapping instead; a span in one is
+/// reported by `actual_text::scan` as covering no measurable text rather than
+/// measured wrongly.
+fn page_font_widths(doc: &PdfDocument, page: usize) -> HashMap<String, actual_text::FontWidths> {
+    let mut out = HashMap::new();
+    let number = |o: &Object| -> Option<f32> {
+        o.as_real()
+            .map(|v| v as f32)
+            .or_else(|| o.as_integer().map(|v| v as f32))
+    };
+    let resolve = |o: &Object| doc.resolve_references(o, 8).ok();
+
+    let Ok(page_obj) = doc.get_page(page) else {
+        return out;
+    };
+    let fonts = page_obj
+        .as_dict()
+        .and_then(|d| d.get("Resources"))
+        .and_then(&resolve)
+        .and_then(|r| r.as_dict().and_then(|d| d.get("Font")).and_then(&resolve));
+    let Some(fonts) = fonts.as_ref().and_then(|f| f.as_dict()) else {
+        return out;
+    };
+
+    for (name, entry) in fonts {
+        let Some(font) = resolve(entry) else { continue };
+        let Some(dict) = font.as_dict() else { continue };
+        let first_char = dict.get("FirstChar").and_then(&number).unwrap_or(0.0) as i64;
+        let widths: Vec<f32> = dict
+            .get("Widths")
+            .and_then(&resolve)
+            .and_then(|w| w.as_array().map(|a| a.iter().filter_map(&number).collect()))
+            .unwrap_or_default();
+        let missing = dict
+            .get("FontDescriptor")
+            .and_then(&resolve)
+            .and_then(|d| {
+                d.as_dict()
+                    .and_then(|d| d.get("MissingWidth"))
+                    .and_then(&number)
+            })
+            .unwrap_or(0.0);
+        out.insert(
+            name.clone(),
+            actual_text::FontWidths {
+                first_char,
+                widths,
+                missing,
+            },
+        );
     }
     out
 }
@@ -1055,6 +1430,71 @@ fn debug_geometry(
     if let Some(q) = a.quad_points.as_ref().and_then(|q| q.first()) {
         eprintln!("  first quad {q:?}");
     }
+}
+
+/// The old signature of [`text_under_quads`], with no declarations, returning
+/// just the text.
+///
+/// Every existing case in `tests` predates `/ActualText` handling and asserts
+/// on geometry alone, so this keeps those assertions readable rather than
+/// threading two arguments they do not exercise through all six of them.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn quad_texts(
+    quads: &[[f64; 8]],
+    chars: &[TextChar],
+    space: GlyphSpace,
+    media_x0: f32,
+    media_y0: f32,
+    page_height: f32,
+    min_overlap: f32,
+    space_gap: f32,
+    debug: bool,
+) -> Vec<String> {
+    let frame = Frame {
+        x0: media_x0,
+        y0: media_y0,
+        height: page_height,
+    };
+    text_under_quads(
+        quads,
+        chars,
+        &Matching {
+            space,
+            frame,
+            min_overlap,
+            space_gap,
+            fold_ligatures: true,
+            debug,
+            units: &[],
+        },
+    )
+    .into_iter()
+    .map(|l| l.text)
+    .collect()
+}
+
+/// [`join_lines`] over plain strings, with no declarations in play.
+#[cfg(test)]
+fn join_plain(lines: &[String], keep_hyphens: bool) -> String {
+    let lines: Vec<Line> = lines
+        .iter()
+        .map(|text| Line {
+            text: text.clone(),
+            band: (0.0, 10.0),
+            right: None,
+        })
+        .collect();
+    join_lines(
+        &lines,
+        keep_hyphens,
+        &[],
+        Frame {
+            x0: 0.0,
+            y0: 0.0,
+            height: 792.0,
+        },
+    )
 }
 
 #[cfg(test)]

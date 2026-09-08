@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "note": "An inventory of items a producer's file fails to record, per PDF. This does NOT change what the correct answer is — expected.json remains the single statement of that, unmodified. It records that a given input does not contain a usable recording of an item, so the harness does not assert against data that is not there. Every entry needs evidence that can be checked against the file itself.",
+  "producers": {
+    "base-papers-50.2.pdf": {
+      "AT7A": {
+        "reason": "Papers can not express a selection over a declared span crossing a line break."
+      }
+    }
+  }
+}
