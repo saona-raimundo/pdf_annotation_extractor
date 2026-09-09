@@ -42,6 +42,9 @@ use actual_text::{Frame, Segment, Unit, Unrepaired};
 mod diagnostic;
 use diagnostic::{Diagnostic, Diagnostics};
 
+mod error;
+use error::Error;
+
 #[derive(Copy, Clone, PartialEq, ValueEnum)]
 enum ShowArg {
     Colour,
@@ -391,23 +394,26 @@ fn main() {
             std::process::exit(3);
         }
         Err(e) => {
-            eprintln!("error: {e}");
+            // The chain, not just the head: "could not read paper.pdf" is not
+            // actionable on its own, and the cause under it is the byte offset
+            // that is.
+            eprint!("{}", error::report(&e));
             std::process::exit(1);
         }
     }
 }
 
-fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
+fn run() -> Result<Outcome, Error> {
     let args = Args::parse();
     let mut diags = Diagnostics::default();
-    let doc = PdfDocument::open(&args.file)?;
+    let doc = PdfDocument::open(&args.file).map_err(|e| Error::open(&args.file, e))?;
     let file_name = args
         .file
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let page_count = doc.page_count()?;
+    let page_count = doc.page_count().map_err(Error::page_count)?;
     let sections = section_titles(&doc, page_count);
 
     // Infer the glyph convention once, from the page in the sample that
@@ -745,7 +751,7 @@ fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
 /// single write below the 64 KiB pipe buffer completes before the reader
 /// exits; past that it aborts with exit 101 and a panic trace. Every other
 /// Unix filter exits quietly instead.
-fn write_to<W: Write>(mut out: W, text: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn write_to<W: Write>(mut out: W, text: &str) -> Result<(), Error> {
     match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(()),
@@ -753,7 +759,7 @@ fn write_to<W: Write>(mut out: W, text: &str) -> Result<(), Box<dyn std::error::
     }
 }
 
-fn write_out(text: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn write_out(text: &str) -> Result<(), Error> {
     write_to(io::stdout().lock(), text)
 }
 
