@@ -22,6 +22,15 @@ jobs:
       # Runs the unit tests in main.rs, markdown.rs and date.rs, and the
       # fixture tests in tests/fixtures.rs against the committed producer PDFs.
       - run: cargo test
+      # The library must not need clap. Nothing in src/ outside main.rs
+      # mentions it, and this is what keeps that true — a stray `use clap`
+      # in the library would compile fine under the default features and
+      # only break for the consumers who care.
+      #
+      # `check`, not `test`: the integration tests reach for
+      # CARGO_BIN_EXE_pdf_annotation_extractor, which does not exist when the
+      # binary is skipped.
+      - run: cargo check --no-default-features
 
   # The declared rust-version is a promise; check it holds rather than
   # discovering otherwise from a bug report.

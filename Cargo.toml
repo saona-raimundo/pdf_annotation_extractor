@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.89" # update by running > cargo-msrv find
 authors = ["Raimundo Saona <raimundo.saona@gmail.com>"]
-license = "MIT OR Unlicense"
+license = "MIT OR Unlicense OR CC0 OR APACHE"
 readme = "README.md"
 repository = "https://github.com/saona-raimundo/pdf_annotation_extractor"
 documentation = "https://docs.rs/pdf_annotation_extractor"
@@ -22,7 +22,25 @@ categories = ["command-line-utilities", "text-processing"]
 # gets fixed. `tests/pdf_oxide_canary.rs` is the tripwire; unpin when `repair`
 # can tell the two worlds apart.
 pdf_oxide = "=0.3.77"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 jiff = "0.2"
+
+[features]
+# The library never mentions clap — argument parsing belongs to `src/main.rs`
+# alone. Left as a hard dependency it made every library consumer, and every
+# WASM build, compile clap and its transitive crates for nothing, which is at
+# odds with the point of a five-dependency pure-Rust crate. On by default so
+# `cargo install` still works; a library consumer wants
+# `default-features = false`.
+default = ["cli"]
+cli = ["dep:clap"]
+
+# Declared explicitly only to carry `required-features`. Without it,
+# `--no-default-features` would still try to compile `main.rs` and fail on the
+# missing clap, rather than simply skipping the binary.
+[[bin]]
+name = "pdf_annotation_extractor"
+path = "src/main.rs"
+required-features = ["cli"]
