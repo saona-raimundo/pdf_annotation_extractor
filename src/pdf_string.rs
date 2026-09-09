@@ -76,14 +76,14 @@ pub(crate) fn decode(bytes: &[u8]) -> Decoded {
             undefined: 0,
         };
     }
-    if bytes.iter().any(|&b| b >= 0x80) {
-        if let Ok(s) = std::str::from_utf8(bytes) {
-            return Decoded {
-                text: s.to_string(),
-                encoding: Encoding::Utf8Sniffed,
-                undefined: 0,
-            };
-        }
+    if bytes.iter().any(|&b| b >= 0x80)
+        && let Ok(s) = std::str::from_utf8(bytes)
+    {
+        return Decoded {
+            text: s.to_string(),
+            encoding: Encoding::Utf8Sniffed,
+            undefined: 0,
+        };
     }
 
     let mut text = String::with_capacity(bytes.len());

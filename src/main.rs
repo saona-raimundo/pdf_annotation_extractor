@@ -39,6 +39,9 @@ use pdf_string::Encoding;
 mod actual_text;
 use actual_text::{Frame, Unit};
 
+mod diagnostic;
+use diagnostic::{Diagnostic, Diagnostics};
+
 #[derive(Copy, Clone, PartialEq, ValueEnum)]
 enum ShowArg {
     Colour,
@@ -113,6 +116,11 @@ struct Args {
     /// Per-page annotation counts, including ones pdf_oxide silently drops
     #[arg(long)]
     stats: bool,
+
+    /// Exit non-zero if anything was assumed, skipped or possibly wrong.
+    /// For a pipeline that would rather stop than accept a partial report.
+    #[arg(long)]
+    strict: bool,
 
     /// Keep line-break hyphens instead of joining the split word
     #[arg(long)]
@@ -354,15 +362,35 @@ struct Record {
     link: String,
 }
 
+/// What `run` decided the process should exit with.
+///
+/// Exit codes: 0 clean, 1 could not produce a report at all, 3 produced one
+/// but `--strict` was set and something was assumed or skipped. 2 is left
+/// alone because clap uses it for a usage error, and a caller distinguishing
+/// "you typed it wrong" from "the document is dubious" should not have to
+/// guess which it got.
+enum Outcome {
+    Clean,
+    StrictWarnings(usize),
+}
+
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("error: {e}");
-        std::process::exit(1);
+    match run() {
+        Ok(Outcome::Clean) => {}
+        Ok(Outcome::StrictWarnings(n)) => {
+            eprintln!("error: {n} warning(s) and --strict was set");
+            std::process::exit(3);
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
     let args = Args::parse();
+    let mut diags = Diagnostics::default();
     let doc = PdfDocument::open(&args.file)?;
     let file_name = args
         .file
@@ -416,9 +444,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             if inferred { "measured" } else { "assumed" }
         );
     }
-    // Reported at the point it can do damage rather than here: a document of
-    // comment-only annotations never matches a quad and does not care.
-    let mut geometry_warned = inferred;
+    // `inferred` is false when no page carried enough text to measure the
+    // convention. The warning is raised at the first quad that fails to match
+    // rather than here: a document of comment-only annotations never compares
+    // a glyph to a quad and is not affected by the assumption.
 
     let mut records = Vec::new();
     let mut total_parsed = 0usize;
@@ -426,30 +455,53 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut encoding_notes = EncodingNotes::default();
 
     for page in 0..page_count {
-        let annots = doc.get_annotations(page)?;
+        // A page that will not parse costs a page's worth of annotations, not
+        // the document's. Everything else in this function is deliberately
+        // lenient — `unwrap_or_default`, `unwrap_or(0)` — and these three `?`s
+        // were the exception: one malformed page threw away every annotation
+        // in the file, including the pages that were fine. Which is the worst
+        // possible outcome for a tool whose whole job is salvage.
+        //
+        // Reported on stderr for now, in the style of the warnings around
+        // them; folds into `Diagnostic` with the rest in the next phase.
+        let annots = match doc.get_annotations(page) {
+            Ok(annots) => annots,
+            Err(e) => {
+                diags.push(Diagnostic::AnnotsUnreadable {
+                    page: page + 1,
+                    error: e.to_string(),
+                });
+                continue;
+            }
+        };
         let (raw_count, inline_count) = audit_annots(&doc, page);
         total_parsed += annots.len();
         total_dropped += raw_count.saturating_sub(annots.len());
 
         if args.stats && raw_count > 0 {
-            eprintln!(
-                "page {:>3}: {} in /Annots, {} parsed{}",
-                page + 1,
-                raw_count,
-                annots.len(),
-                if inline_count > 0 {
-                    format!(", {inline_count} inline dicts (dropped by pdf_oxide)")
-                } else {
-                    String::new()
-                }
-            );
+            diags.push(Diagnostic::PageAnnotCounts {
+                page: page + 1,
+                in_annots: raw_count,
+                parsed: annots.len(),
+                inline: inline_count,
+            });
         }
 
         if annots.is_empty() {
             continue;
         }
 
-        let (mx0, my0, _mx1, my1) = doc.get_page_media_box(page)?;
+        // No media box, and none inherited from /Pages. Skipped rather than
+        // defaulted to Letter: the height is what flips every quad into
+        // top-down space, so a guessed one does not degrade the answer, it
+        // moves every annotation on the page to a plausible wrong place.
+        let Ok((mx0, my0, _mx1, my1)) = doc.get_page_media_box(page) else {
+            diags.push(Diagnostic::NoMediaBox {
+                page: page + 1,
+                annotations: annots.len(),
+            });
+            continue;
+        };
         let page_height = my1 - my0;
 
         // /Rotate is not applied to anything here, and that is deliberate: it
@@ -466,18 +518,35 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         // content stream measures in.
         let mut units: Vec<Unit> = Vec::new();
         let chars: Option<Vec<TextChar>> = if annots.iter().any(has_quads) {
-            let mut cs = doc.extract_chars(page)?;
-            let content = doc.get_page_content_data(page).unwrap_or_default();
-            if actual_text::present(&content) {
-                let fonts = page_font_widths(&doc, page);
-                let (decls, unsupported) = actual_text::scan(&content, &fonts);
-                let (found, broken) = actual_text::repair(&mut cs, &decls);
-                units = found;
-                for note in unsupported.into_iter().chain(broken) {
-                    eprintln!("warning: page {}: {note}", page + 1);
+            // `None`, not an empty glyph list. An empty list would match no
+            // quads and then blame the geometry — `quads matched no glyphs
+            // (try --min-overlap or --geometry)` — sending the reader after a
+            // convention that was never the problem.
+            match doc.extract_chars(page) {
+                Ok(mut cs) => {
+                    let content = doc.get_page_content_data(page).unwrap_or_default();
+                    if actual_text::present(&content) {
+                        let fonts = page_font_widths(&doc, page);
+                        let (decls, unsupported) = actual_text::scan(&content, &fonts);
+                        let (found, broken) = actual_text::repair(&mut cs, &decls);
+                        units = found;
+                        for note in unsupported.into_iter().chain(broken) {
+                            diags.push(Diagnostic::ActualTextNote {
+                                page: page + 1,
+                                note,
+                            });
+                        }
+                    }
+                    Some(to_page_frame(cs, mx0, my0))
+                }
+                Err(e) => {
+                    diags.push(Diagnostic::TextUnextractable {
+                        page: page + 1,
+                        error: e.to_string(),
+                    });
+                    None
                 }
             }
-            Some(to_page_frame(cs, mx0, my0))
         } else {
             None
         };
@@ -513,24 +582,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     );
                     let empty = lines.iter().filter(|l| l.text.is_empty()).count();
                     if empty > 0 {
-                        if !geometry_warned {
-                            eprintln!(
-                                "warning: too little text to measure the glyph coordinate \
-                                 convention; assumed {space:?}. Set --geometry explicitly."
-                            );
-                            geometry_warned = true;
-                        }
-                        eprintln!(
-                            "warning: page {}: {empty}/{} quads matched no glyphs{} \
-                             (try --min-overlap or --geometry)",
-                            page + 1,
-                            quads.len(),
-                            if rotation % 360 != 0 {
-                                format!("; page carries /Rotate {rotation}")
-                            } else {
-                                String::new()
+                        if !inferred {
+                            let assumed = Diagnostic::GeometryAssumed { space };
+                            if !diags.contains(&assumed) {
+                                diags.push(assumed);
                             }
-                        );
+                        }
+                        diags.push(Diagnostic::UnmatchedQuads {
+                            page: page + 1,
+                            unmatched: empty,
+                            total: quads.len(),
+                            rotation,
+                        });
                     }
                     let nonempty: Vec<Line> =
                         lines.into_iter().filter(|l| !l.text.is_empty()).collect();
@@ -583,26 +646,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if total_dropped > 0 {
-        eprintln!(
-            "warning: {total_dropped} of {} annotations in /Annots were not parsed \
-             (rerun with --stats)",
-            total_parsed + total_dropped
-        );
+        diags.push(Diagnostic::UnparsedAnnots {
+            dropped: total_dropped,
+            total: total_parsed + total_dropped,
+        });
     }
 
     if encoding_notes.sniffed_utf8 > 0 {
-        eprintln!(
-            "note: {} string(s) carried no byte order mark and were read as UTF-8 \
-             rather than PDFDocEncoding",
-            encoding_notes.sniffed_utf8
-        );
+        diags.push(Diagnostic::EncodingSniffed {
+            count: encoding_notes.sniffed_utf8,
+        });
     }
     if encoding_notes.undefined_bytes > 0 {
-        eprintln!(
-            "note: {} byte(s) fell on PDFDocEncoding slots the spec leaves undefined \
-             (0x7F, 0x9F, 0xAD) and were read as Latin-1",
-            encoding_notes.undefined_bytes
-        );
+        diags.push(Diagnostic::UndefinedPdfDocBytes {
+            count: encoding_notes.undefined_bytes,
+        });
     }
 
     sort_records(&mut records);
@@ -618,7 +676,22 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             markdown::render(&records, &style)
         }
     };
-    write_out(&text)
+
+    // Before the report, not after: under `tool paper.pdf | head` the write
+    // to stdout may return early on a closed pipe, and a warning the reader
+    // never sees is the failure mode this whole module exists to remove.
+    let notes = diags.render();
+    if !notes.is_empty() {
+        write_to(io::stderr().lock(), &notes)?;
+    }
+
+    write_out(&text)?;
+
+    Ok(if args.strict && diags.warnings() > 0 {
+        Outcome::StrictWarnings(diags.warnings())
+    } else {
+        Outcome::Clean
+    })
 }
 
 /// Write the report to the writer, treating a closed pipe as success.

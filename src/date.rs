@@ -17,22 +17,24 @@
 //! rather than inventing an offset and shifting the clock.
 
 use jiff::civil::{Date, DateTime};
-use jiff::tz::{Offset, TimeZone};
+use jiff::tz::Offset;
 
 /// A PDF date, formatted for a person to read: `2026-09-02 09:16`.
 ///
 /// Returns `None` for anything unparseable, so a malformed date is simply
 /// omitted from a report rather than failing the run.
+/// The recorded offset is deliberately not applied. This used to branch on it
+/// and call `dt.to_zoned(TimeZone::system())`, under a comment claiming to
+/// present the time in the reader's zone — but `to_zoned` *interprets* a civil
+/// datetime as being in the zone given, it does not convert into it from
+/// somewhere else. Both arms therefore printed the same clock time, which is
+/// the behaviour `keeps_the_recorded_offset_rather_than_shifting` asserts and
+/// the module docs describe. The branch was dead, its comment was false, and
+/// `TimeZone::system()` was the crate's only call that cannot run on
+/// `wasm32-unknown-unknown`.
 pub(crate) fn human(pdf_date: &str) -> Option<String> {
-    let (dt, offset) = parse(pdf_date)?;
-    match offset {
-        // Present the annotation time in reader's zone.
-        Some(_off) => {
-            let zoned = dt.to_zoned(TimeZone::system()).ok()?;
-            Some(zoned.strftime("%Y-%m-%d %H:%M").to_string())
-        }
-        None => Some(dt.strftime("%Y-%m-%d %H:%M").to_string()),
-    }
+    let (dt, _offset) = parse(pdf_date)?;
+    Some(dt.strftime("%Y-%m-%d %H:%M").to_string())
 }
 
 /// The same instant with its offset, for callers that need to compare or sort.

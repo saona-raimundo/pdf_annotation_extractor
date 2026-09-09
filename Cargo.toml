@@ -13,7 +13,15 @@ keywords = ["pdf", "annotations", "highlights", "markdown", "review"]
 categories = ["command-line-utilities", "text-processing"]
 
 [dependencies]
-pdf_oxide = "0.3.77"
+# Pinned, not a caret range. `actual_text::repair` depends on the *shape* of a
+# defect in this exact version: /ActualText is re-encoded through the font in
+# character mode, one glyph per UTF-8 byte at successive cursor positions, and
+# `repair` walks that chain to remove it. A patch release fixing the defect
+# would leave the chain unfound, so every declaration would fail its length
+# check and have its text suppressed — output gets worse when the upstream bug
+# gets fixed. `tests/pdf_oxide_canary.rs` is the tripwire; unpin when `repair`
+# can tell the two worlds apart.
+pdf_oxide = "=0.3.77"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

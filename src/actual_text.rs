@@ -246,10 +246,7 @@ pub(crate) fn synthesise(
 /// A chain that breaks early is not repaired on a guess. The declaration is
 /// dropped, a diagnostic is returned, and the caller suppresses the text
 /// rather than reporting characters it cannot vouch for.
-pub(crate) fn repair(
-    chars: &mut Vec<TextChar>,
-    decls: &[Declaration],
-) -> (Vec<Unit>, Vec<String>) {
+pub(crate) fn repair(chars: &mut Vec<TextChar>, decls: &[Declaration]) -> (Vec<Unit>, Vec<String>) {
     const EPS: f32 = 0.05;
 
     let mut remove = vec![false; chars.len()];
@@ -315,9 +312,7 @@ pub(crate) fn repair(
 
 /// Is it worth scanning this page at all?
 pub(crate) fn present(content: &[u8]) -> bool {
-    content
-        .windows(11)
-        .any(|w| w == b"/ActualText")
+    content.windows(11).any(|w| w == b"/ActualText")
 }
 
 // ---------------------------------------------------------------- the scan
@@ -518,11 +513,9 @@ impl Cursor {
         if self.fresh {
             return;
         }
-        for slot in open.iter_mut() {
-            if let Some(d) = slot {
-                if let Some(s) = d.segments.last_mut() {
-                    s.advance += dx;
-                }
+        for d in open.iter_mut().flatten() {
+            if let Some(s) = d.segments.last_mut() {
+                s.advance += dx;
             }
         }
     }
@@ -563,21 +556,23 @@ fn show(
     let mut total = 0.0;
     for &code in bytes {
         let w0 = metrics.map_or(0.0, |m| m.width(code)) / 1000.0;
-        let spacing = if code == b' ' { state.word_spacing } else { 0.0 };
+        let spacing = if code == b' ' {
+            state.word_spacing
+        } else {
+            0.0
+        };
         total += (w0 * state.size + state.char_spacing + spacing) * state.horizontal;
     }
-    for slot in open.iter_mut() {
-        if let Some(d) = slot {
-            if cursor.fresh || d.segments.is_empty() {
-                d.segments.push(Segment {
-                    x: pos.0,
-                    baseline: pos.1,
-                    advance: 0.0,
-                });
-            }
-            if let Some(s) = d.segments.last_mut() {
-                s.advance += total;
-            }
+    for d in open.iter_mut().flatten() {
+        if cursor.fresh || d.segments.is_empty() {
+            d.segments.push(Segment {
+                x: pos.0,
+                baseline: pos.1,
+                advance: 0.0,
+            });
+        }
+        if let Some(s) = d.segments.last_mut() {
+            s.advance += total;
         }
     }
     cursor.pos = Some((pos.0 + total, pos.1));
@@ -781,9 +776,7 @@ fn hex_string(data: &[u8], mut i: usize) -> (Vec<u8>, usize) {
     }
     let bytes = digits
         .chunks(2)
-        .filter_map(|p| {
-            u8::from_str_radix(std::str::from_utf8(p).ok()?, 16).ok()
-        })
+        .filter_map(|p| u8::from_str_radix(std::str::from_utf8(p).ok()?, 16).ok())
         .collect();
     (bytes, i + 1)
 }
