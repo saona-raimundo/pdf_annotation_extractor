@@ -42,7 +42,7 @@ pub(crate) enum BareStyle {
 /// locates it in the document. They are identifiers, not categories.
 #[allow(dead_code)]
 #[derive(Copy, Clone, PartialEq)]
-pub(crate) enum Descriptor {
+pub enum Descriptor {
     /// Currently the hex value. A content-dependent namer is planned: eight
     /// yellows in one document need eight distinguishable names, which a
     /// fixed palette cannot give.
@@ -59,7 +59,7 @@ pub(crate) enum Descriptor {
 /// Item numbering, so a remark can be cited as "page 3, note 2".
 #[allow(dead_code)]
 #[derive(Copy, Clone, PartialEq)]
-pub(crate) enum Numbering {
+pub enum Numbering {
     None,
     /// Counts across the whole report.
     Global,

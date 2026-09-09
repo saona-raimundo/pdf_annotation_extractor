@@ -179,7 +179,7 @@ pub enum Diagnostic {
 }
 
 impl Diagnostic {
-    pub(crate) fn severity(&self) -> Severity {
+    pub fn severity(&self) -> Severity {
         match self {
             Diagnostic::PageAnnotCounts { .. } => Severity::Info,
             Diagnostic::EncodingSniffed { .. } | Diagnostic::UndefinedPdfDocBytes { .. } => {
@@ -338,7 +338,7 @@ impl Diagnostics {
         self.items.contains(d)
     }
 
-    pub(crate) fn warnings(&self) -> usize {
+    pub fn warnings(&self) -> usize {
         self.items
             .iter()
             .filter(|d| d.severity() == Severity::Warning)
@@ -350,7 +350,7 @@ impl Diagnostics {
     /// A `String` rather than a `Write`, so the caller can send it through
     /// [`crate::write_to`] and inherit its handling of a closed pipe. Empty
     /// when there is nothing to say, so the caller can skip the write.
-    pub(crate) fn render(&self) -> String {
+    pub fn render(&self) -> String {
         let mut out = String::new();
         for d in &self.items {
             out.push_str(d.severity().prefix());
