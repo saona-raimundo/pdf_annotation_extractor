@@ -24,11 +24,9 @@
 //! Adding a producer, or a whole family, needs no change to this file.
 //! (Cargo ignores `tests/basic/` as a build target: it has no `main.rs`.)
 //!
-//! `diagnostics_inventory` is `#[ignore]`d: it prints what every fixture
-//! reports rather than asserting anything, because an assertion has to be
-//! written against what the corpus actually says and that is not yet written
-//! down anywhere. Run it with
-//! `cargo test --test fixtures diagnostics_inventory -- --ignored --nocapture`.
+//! What the corpus reports is now asserted, not printed: see
+//! `no_fixture_reports_a_warning`, and `the_diagnostic_channel_is_wired`,
+//! which is the reason the first is worth anything.
 //!
 //! Pairing. An expectation is bound to the record that claims it by its
 //! sentinel where it has one, and by page + subtype + comment where it does
@@ -651,76 +649,104 @@ fn no_duplicate_or_extra_records() {
     }
 }
 
-// ------------------------------------------------------- diagnostics inventory
+// --------------------------------------------------------------- diagnostics
 
-/// Print what every fixture reports, and assert nothing.
+/// No fixture may report a warning.
 ///
-/// Ignored on purpose. A real assertion here — "no fixture produces a warning"
-/// — would be the most valuable test in the suite, because a warning is how a
-/// plausible wrong answer announces itself. But it can only be written against
-/// what the corpus actually says, and until this has been run once, nothing
-/// records that: a `UnmatchedQuads` on a Papers file may be a producer writing
-/// malformed quads, or may be our geometry, and the difference is not
-/// guessable from here.
+/// The strongest test in the suite, because a warning is how a plausible wrong
+/// answer announces itself. Every other test asks whether the extracted text
+/// matches; this one asks whether anything had to be assumed, skipped or
+/// withheld to get it — and on a corpus of documents whose meaning is written
+/// down, the answer should be no.
 ///
-/// So this is the characterisation step. Run it, read the output, and the
-/// expectations become writable:
+/// It ran clean on the whole corpus the day it was written: nine producers,
+/// nothing reported. So this is not a target to work towards, it is a line
+/// that already holds and should stay held.
 ///
-/// ```text
-/// cargo test --test fixtures diagnostics_inventory -- --ignored --nocapture
-/// ```
+/// Warnings only. `EncodingSniffed` and `UndefinedPdfDocBytes` are `Note`,
+/// meaning something was assumed and the assumption is probably right; they
+/// are printed when a run fails but do not fail it themselves.
 #[test]
-#[ignore = "prints an inventory; assert on it once the corpus has been read"]
-fn diagnostics_inventory() {
-    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
-    let (mut clean, mut noisy) = (0usize, 0usize);
+fn no_fixture_reports_a_warning() {
+    let mut failures: Vec<String> = Vec::new();
 
     for family in families() {
         for pdf in &family.producers {
             let out = extracted(pdf);
-            let tag = label(&family.name, pdf);
-            let notes = out.diagnostics.render();
-
-            // The prefix before the first colon is the variant's own wording,
-            // which is what an assertion would key on. Tallied across every
-            // producer: a prefix on all of a family's producers is a fact
-            // about the document, one on a single producer is a fact about
-            // that producer.
-            for line in notes.lines() {
-                let kind = line.split_once(':').map(|(k, _)| k).unwrap_or(line);
-                *kinds.entry(kind.to_string()).or_default() += 1;
-            }
-
-            let items: Vec<String> = out
-                .annotations
-                .iter()
-                .flat_map(|r| {
-                    r.diagnostics
-                        .iter()
-                        .map(move |d| format!("on page {} ({}): {d}", r.page, r.kind))
-                })
-                .collect();
-
-            if notes.is_empty() && items.is_empty() {
-                clean += 1;
+            if out.diagnostics.warnings() == 0 {
                 continue;
             }
-            noisy += 1;
-            println!("\n[{tag}] {} warning(s)", out.diagnostics.warnings());
-            for line in notes.lines() {
-                println!("    {line}");
+            let tag = label(&family.name, pdf);
+            let mut lines = vec![format!(
+                "[{tag}] {} warning(s):",
+                out.diagnostics.warnings()
+            )];
+            lines.extend(out.diagnostics.render().lines().map(|l| format!("    {l}")));
+
+            // The per-annotation copies say which item to distrust, which the
+            // document-level render cannot: it names a page, not an entry.
+            for r in &out.annotations {
+                for d in &r.diagnostics {
+                    lines.push(format!("    -> page {} ({}): {d}", r.page, r.kind));
+                }
             }
-            // Per-annotation diagnostics are absent from the document render,
-            // and they are the ones that say which item to distrust.
-            for line in items {
-                println!("    {line}");
-            }
+            failures.push(lines.join("\n"));
         }
     }
 
-    println!("\n{clean} fixture(s) reported nothing, {noisy} reported something");
-    println!("by prefix:");
-    for (kind, n) in &kinds {
-        println!("    {n:>4}  {kind}");
-    }
+    assert!(
+        failures.is_empty(),
+        "{} fixture(s) reported a warning:\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
+}
+
+/// Prove a diagnostic can reach a test at all.
+///
+/// The control for the test above, and the reason it is worth anything. An
+/// assertion that nothing was reported passes just as happily when nothing
+/// *can* be reported — a collector that never gets pushed to, a `Report` field
+/// that never gets filled, a `render` that returns early — and the suite would
+/// stay green through all three. `page_counts` is the one diagnostic that can
+/// be switched on deliberately, so switching it on and finding it is the check.
+#[test]
+#[allow(clippy::field_reassign_with_default)]
+fn the_diagnostic_channel_is_wired() {
+    let family = families()
+        .into_iter()
+        .next()
+        .expect("families() asserts it found some");
+    let pdf = family
+        .producers
+        .first()
+        .unwrap_or_else(|| panic!("{} has no producers", family.name))
+        .clone();
+    let bytes =
+        std::fs::read(&pdf).unwrap_or_else(|e| panic!("cannot read {}: {e}", pdf.display()));
+
+    // `Options` is `#[non_exhaustive]`, so no struct literal from out here.
+    let mut opts = Options::default();
+    opts.page_counts = true;
+    let with = pdf_annotation_extractor::extract(bytes.clone(), &opts)
+        .unwrap_or_else(|e| panic!("{}", pdf_annotation_extractor::error::report(&e).trim_end()));
+
+    assert!(
+        with.diagnostics.render().contains("in /Annots"),
+        "asked for per-page counts and got nothing back, so a clean run in \
+         `no_fixture_reports_a_warning` proves nothing.\nrendered: {:?}",
+        with.diagnostics.render()
+    );
+    assert_eq!(
+        with.diagnostics.warnings(),
+        0,
+        "a per-page count answers a question rather than raising a complaint, \
+         so it must not inflate the count that --strict keys on"
+    );
+
+    // The same document reports nothing without the flag, so what arrived
+    // above came from the flag and not from the document.
+    let without = pdf_annotation_extractor::extract(bytes, &Options::default())
+        .unwrap_or_else(|e| panic!("{}", pdf_annotation_extractor::error::report(&e).trim_end()));
+    assert_eq!(without.diagnostics.render(), "");
 }
