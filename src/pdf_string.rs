@@ -76,6 +76,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Decoded {
             undefined: 0,
         };
     }
+    // The high-byte test is not redundant with the UTF-8 parse: pure ASCII is
+    // valid UTF-8, so without it every plain string would be reported as
+    // `Utf8Sniffed`, claiming a guess where the two encodings agree. See
+    // `the_sniff_does_not_claim_pure_ascii`.
     if bytes.iter().any(|&b| b >= 0x80)
         && let Ok(s) = std::str::from_utf8(bytes)
     {

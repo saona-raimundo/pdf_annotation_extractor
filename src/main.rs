@@ -168,7 +168,7 @@ enum GeometryArg {
     BottomUp,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
 enum GlyphSpace {
     TopDownTop,
     TopDownBottom,
@@ -360,6 +360,15 @@ struct Record {
     /// [x, y, width, height] in PDF user space, y-up
     rect: [f64; 4],
     link: String,
+    /// What had to be assumed or given up on for *this* item.
+    ///
+    /// Skipped when empty, so a document that extracted cleanly serialises
+    /// byte for byte as it did before the field existed. Only annotation-scope
+    /// diagnostics appear here; document-scope ones go to stderr, and will
+    /// join a `Report` alongside the annotations when the JSON stops being a
+    /// bare array.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    diagnostics: Vec<Diagnostic>,
 }
 
 /// What `run` decided the process should exit with.
@@ -527,14 +536,11 @@ fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
                     let content = doc.get_page_content_data(page).unwrap_or_default();
                     if actual_text::present(&content) {
                         let fonts = page_font_widths(&doc, page);
-                        let (decls, unsupported) = actual_text::scan(&content, &fonts);
-                        let (found, broken) = actual_text::repair(&mut cs, &decls);
+                        let (decls, unsupported) = actual_text::scan(&content, &fonts, page + 1);
+                        let (found, broken) = actual_text::repair(&mut cs, &decls, page + 1);
                         units = found;
-                        for note in unsupported.into_iter().chain(broken) {
-                            diags.push(Diagnostic::ActualTextNote {
-                                page: page + 1,
-                                note,
-                            });
+                        for d in unsupported.into_iter().chain(broken) {
+                            diags.push(d);
                         }
                     }
                     Some(to_page_frame(cs, mx0, my0))
@@ -565,6 +571,8 @@ fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
                 continue;
             }
 
+            let mut item_diags: Vec<Diagnostic> = Vec::new();
+
             let covered_text = match (&a.quad_points, &chars) {
                 (Some(quads), Some(chars)) if !quads.is_empty() => {
                     let lines = text_under_quads(
@@ -588,12 +596,18 @@ fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
                                 diags.push(assumed);
                             }
                         }
-                        diags.push(Diagnostic::UnmatchedQuads {
+                        // Both channels: the record so a JSON consumer reading
+                        // this one item knows not to trust its covered_text,
+                        // and the document so someone reading stderr or
+                        // Markdown still sees it.
+                        let unmatched = Diagnostic::UnmatchedQuads {
                             page: page + 1,
                             unmatched: empty,
                             total: quads.len(),
                             rotation,
-                        });
+                        };
+                        item_diags.push(unmatched.clone());
+                        diags.push(unmatched);
                     }
                     let nonempty: Vec<Line> =
                         lines.into_iter().filter(|l| !l.text.is_empty()).collect();
@@ -641,6 +655,14 @@ fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
                 section: sections.get(&page).cloned(),
                 rect: a.rect.unwrap_or([0.0; 4]),
                 link: format!("{file_name}#page={}", page + 1),
+                // Filtered rather than trusted. Nothing is lost by dropping a
+                // document-scope diagnostic here, because `diags` already has
+                // it — what is prevented is a record claiming a fact about
+                // the page as a fact about itself.
+                diagnostics: item_diags
+                    .into_iter()
+                    .filter(Diagnostic::is_annotation_scope)
+                    .collect(),
             });
         }
     }

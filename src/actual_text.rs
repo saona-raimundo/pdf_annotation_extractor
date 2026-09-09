@@ -60,6 +60,7 @@ use std::collections::HashMap;
 
 use pdf_oxide::layout::TextChar;
 
+use crate::diagnostic::Diagnostic;
 use crate::pdf_string;
 
 /// How to read a user-space coordinate in the page frame the quads use.
@@ -246,7 +247,11 @@ pub(crate) fn synthesise(
 /// A chain that breaks early is not repaired on a guess. The declaration is
 /// dropped, a diagnostic is returned, and the caller suppresses the text
 /// rather than reporting characters it cannot vouch for.
-pub(crate) fn repair(chars: &mut Vec<TextChar>, decls: &[Declaration]) -> (Vec<Unit>, Vec<String>) {
+pub(crate) fn repair(
+    chars: &mut Vec<TextChar>,
+    decls: &[Declaration],
+    page: usize,
+) -> (Vec<Unit>, Vec<Diagnostic>) {
     const EPS: f32 = 0.05;
 
     let mut remove = vec![false; chars.len()];
@@ -255,10 +260,10 @@ pub(crate) fn repair(chars: &mut Vec<TextChar>, decls: &[Declaration]) -> (Vec<U
 
     for d in decls {
         let Some(anchor) = d.segments.first() else {
-            diagnostics.push(format!(
-                "declaration {:?} covers no shown text; nothing to place it against",
-                d.text
-            ));
+            diagnostics.push(Diagnostic::DeclarationUnanchored {
+                page,
+                text: d.text.clone(),
+            });
             continue;
         };
 
@@ -282,14 +287,13 @@ pub(crate) fn repair(chars: &mut Vec<TextChar>, decls: &[Declaration]) -> (Vec<U
         }
 
         if chain.len() != wanted {
-            diagnostics.push(format!(
-                "declaration {:?}: found {} of {} replacement characters at x={:.2}; \
-                 text suppressed",
-                d.text,
-                chain.len(),
+            diagnostics.push(Diagnostic::DeclarationUnrepaired {
+                page,
+                text: d.text.clone(),
+                found: chain.len(),
                 wanted,
-                anchor.x
-            ));
+                x: anchor.x,
+            });
             continue;
         }
         for i in chain {
@@ -362,7 +366,8 @@ enum Token {
 pub(crate) fn scan(
     content: &[u8],
     fonts: &HashMap<String, FontWidths>,
-) -> (Vec<Declaration>, Vec<String>) {
+    page: usize,
+) -> (Vec<Declaration>, Vec<Diagnostic>) {
     let mut decls = Vec::new();
     let mut unsupported = Vec::new();
     // One entry per open marked-content scope, `None` for a scope that
@@ -443,9 +448,10 @@ pub(crate) fn scan(
             "BDC" | "BMC" => match declared_text(&operands) {
                 Some(text) => {
                     if cursor.pos.is_none() {
-                        unsupported.push(format!(
-                            "declaration {text:?} opens outside BT/ET; text suppressed"
-                        ));
+                        unsupported.push(Diagnostic::DeclarationOutsideText {
+                            page,
+                            text: text.clone(),
+                        });
                         open.push(None);
                     } else {
                         open.push(Some(Declaration {
@@ -459,10 +465,10 @@ pub(crate) fn scan(
             "EMC" => {
                 if let Some(Some(d)) = open.pop() {
                     if d.segments.is_empty() {
-                        unsupported.push(format!(
-                            "declaration {:?} covers no shown text; text suppressed",
-                            d.text
-                        ));
+                        unsupported.push(Diagnostic::DeclarationCoversNoText {
+                            page,
+                            text: d.text.clone(),
+                        });
                     } else {
                         decls.push(d);
                     }
@@ -474,7 +480,10 @@ pub(crate) fn scan(
     }
 
     if !open.is_empty() {
-        unsupported.push(format!("{} marked-content scope(s) left open", open.len()));
+        unsupported.push(Diagnostic::ScopesLeftOpen {
+            page,
+            count: open.len(),
+        });
     }
     (decls, unsupported)
 }
@@ -806,7 +815,7 @@ mod tests {
         let content = b"BT /F1 10 Tf 100 700 Td [(the )]TJ \
                         /Span<</ActualText<FEFF00530065006300740069006F006E>>>BDC \
                         [(\xA7)]TJ EMC [( on)]TJ ET";
-        let (decls, unsupported) = scan(content, &widths());
+        let (decls, unsupported) = scan(content, &widths(), 1);
         assert!(unsupported.is_empty(), "{unsupported:?}");
         assert_eq!(decls.len(), 1);
         assert_eq!(decls[0].text, "Section");
@@ -827,7 +836,7 @@ mod tests {
         // stands for no character".
         let content = b"BT /F1 10 Tf 100 700 Td [(infra)]TJ \
                         /Span<</ActualText()>>BDC [(-)]TJ EMC ET";
-        let (decls, _) = scan(content, &widths());
+        let (decls, _) = scan(content, &widths(), 1);
         assert_eq!(decls.len(), 1);
         assert_eq!(decls[0].text, "");
         assert_eq!(decls[0].segments[0].x, 150.0);
@@ -838,7 +847,7 @@ mod tests {
         // Keeping it prefixes every declared string with U+FEFF and fails the
         // family for a reason unrelated to /ActualText.
         let content = b"BT /F1 10 Tf 0 0 Td /Span<</ActualText<FEFF0041>>>BDC [(x)]TJ EMC ET";
-        let (decls, _) = scan(content, &widths());
+        let (decls, _) = scan(content, &widths(), 1);
         assert_eq!(decls[0].text, "A");
     }
 
@@ -850,7 +859,7 @@ mod tests {
         let content = b"BT /F1 10 Tf 100 700 Td [(the)]TJ ET \
                         /Span<</ActualText<FEFF0041>>>BDC \
                         BT /F1 10 Tf 200 500 Td [(x)]TJ ET EMC";
-        let (decls, _) = scan(content, &widths());
+        let (decls, _) = scan(content, &widths(), 1);
         assert_eq!(decls[0].segments[0].x, 200.0);
         assert_eq!(decls[0].segments[0].baseline, 500.0);
     }
@@ -860,7 +869,7 @@ mod tests {
         let content = b"BT /F1 10 Tf 100 700 Td \
                         /Span<</ActualText<FEFF0041>>>BDC \
                         [(third)]TJ -20 -14 Td [(of)]TJ EMC ET";
-        let (decls, _) = scan(content, &widths());
+        let (decls, _) = scan(content, &widths(), 1);
         assert_eq!(decls[0].segments.len(), 2);
         assert_eq!(decls[0].segments[0].advance, 50.0);
         assert_eq!(decls[0].segments[1].baseline, 686.0);
@@ -876,14 +885,14 @@ mod tests {
         // pdftex writes an inter-word space.
         let content = b"BT /F1 10 Tf 0 0 Td /Span<</ActualText<FEFF0041>>>BDC \
                         [(ab)-500(cd)]TJ EMC ET";
-        let (decls, _) = scan(content, &widths());
+        let (decls, _) = scan(content, &widths(), 1);
         assert_eq!(decls[0].segments[0].advance, 20.0 + 5.0 + 20.0);
     }
 
     #[test]
     fn a_scope_without_a_declaration_is_not_one() {
         let content = b"BT /F1 10 Tf 0 0 Td /P <</MCID 0>> BDC [(ab)]TJ EMC ET";
-        let (decls, unsupported) = scan(content, &widths());
+        let (decls, unsupported) = scan(content, &widths(), 1);
         assert!(decls.is_empty());
         assert!(unsupported.is_empty(), "{unsupported:?}");
     }
@@ -893,7 +902,7 @@ mod tests {
         let content = b"BT /F1 10 Tf 0 0 Td /P<</MCID 0>>BDC \
                         /Span<</ActualText<FEFF0041>>>BDC [(ab)]TJ EMC \
                         [(cd)]TJ EMC ET";
-        let (decls, unsupported) = scan(content, &widths());
+        let (decls, unsupported) = scan(content, &widths(), 1);
         assert_eq!(decls.len(), 1);
         assert_eq!(decls[0].text, "A");
         assert_eq!(decls[0].segments[0].advance, 20.0);
@@ -903,7 +912,7 @@ mod tests {
     #[test]
     fn a_declaration_covering_nothing_is_reported() {
         let content = b"BT /F1 10 Tf 0 0 Td /Span<</ActualText<FEFF0041>>>BDC EMC ET";
-        let (decls, unsupported) = scan(content, &widths());
+        let (decls, unsupported) = scan(content, &widths(), 1);
         assert!(decls.is_empty());
         assert_eq!(unsupported.len(), 1);
     }

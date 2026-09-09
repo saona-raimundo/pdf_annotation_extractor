@@ -14,11 +14,19 @@
 //!
 //! # Scope
 //!
-//! Every variant here is a fact about the *document*. Facts about a single
-//! annotation — a declaration whose repair failed, a span only partly covered
-//! — belong on the record itself, so that a consumer reading one item knows
-//! whether to trust it. That split is the next change; `ActualTextNote` is the
-//! placeholder that keeps those messages reaching stderr until it lands.
+//! A diagnostic is either about the document or about one annotation, and the
+//! distinction is not cosmetic. "Half the quads on page 3 matched nothing" is
+//! useless to someone reading item 47 of a JSON array unless it is attached to
+//! item 47. So per-annotation diagnostics ride on the record, where a consumer
+//! deciding whether to trust one item can see them, *and* on the document
+//! collector, so that someone reading stderr or Markdown still gets the
+//! warning. Two channels for one fact, because which one the user is reading
+//! is not ours to guess.
+//!
+//! Each variant below says which it is. The `/ActualText` ones are document
+//! scope for now: only `DeclarationUnrepaired` carries a position, so only it
+//! could be attributed to the annotations whose quads cover it, and doing that
+//! by geometric overlap is its own change.
 //!
 //! # What this is not
 //!
@@ -28,6 +36,8 @@
 //! page of text in memory to print it unchanged.
 
 use std::fmt;
+
+use serde::Serialize;
 
 use crate::GlyphSpace;
 
@@ -62,7 +72,15 @@ impl Severity {
 /// Page numbers are stored **1-based**, as printed. Storing the 0-based index
 /// and adding one in `Display` puts the same `+ 1` in a dozen places and makes
 /// the omission of one of them invisible.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Serialised internally tagged, so a per-annotation diagnostic in the JSON
+/// reads as `{"kind": "unmatched_quads", "page": 3, ...}`. There is
+/// deliberately no rendered `message` field: the prose belongs to stderr, and
+/// duplicating it into the machine channel would make it something consumers
+/// parse. If it turns out to be wanted, it belongs in the wire layer with the
+/// rest of the schema decisions.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Diagnostic {
     /// No page carried enough text to measure the glyph coordinate
     /// convention, so a convention was assumed.
@@ -96,6 +114,12 @@ pub(crate) enum Diagnostic {
     TextUnextractable { page: usize, error: String },
 
     /// Quads on a page that claimed no glyphs.
+    ///
+    /// **Annotation scope.** Computed per annotation and always was — the
+    /// counts are that annotation's quads, not the page's — but it used to be
+    /// printed as `page N: ...`, so a page with three bad annotations produced
+    /// three lines that looked like three facts about the page. It now also
+    /// travels on the record it belongs to.
     UnmatchedQuads {
         page: usize,
         unmatched: usize,
@@ -115,15 +139,38 @@ pub(crate) enum Diagnostic {
     /// Bytes landing on PDFDocEncoding slots Table D.2 leaves undefined.
     UndefinedPdfDocBytes { count: usize },
 
-    /// An `/ActualText` message, still formatted by `actual_text`.
+    /// An `/ActualText` scope opened outside `BT`/`ET`, so there is no text
+    /// position to anchor it to.
+    DeclarationOutsideText { page: usize, text: String },
+
+    /// An `/ActualText` scope closed without any text having been shown
+    /// inside it. The declaration describes nothing.
+    DeclarationCoversNoText { page: usize, text: String },
+
+    /// A declaration reached `repair` with no segments.
     ///
-    /// **Transitional.** `scan` and `repair` return `Vec<String>`, and every
-    /// one of those messages is really a fact about one declaration and
-    /// therefore about one annotation. Typing them means typing the
-    /// per-annotation channel at the same time, which is a separate change.
-    /// This variant exists so that unifying the document-level channel does
-    /// not have to wait for it, and it is deleted when that lands.
-    ActualTextNote { page: usize, note: String },
+    /// Unreachable from `scan`, which drops empty-segment declarations before
+    /// returning them, so this only fires for a caller that builds
+    /// declarations itself. Kept because `repair` is public within the crate
+    /// and the alternative is an index panic.
+    DeclarationUnanchored { page: usize, text: String },
+
+    /// The chain of re-encoded replacement characters was not found whole, so
+    /// the declared text could not be repaired and was **suppressed**.
+    ///
+    /// The most important thing in this module. Every other variant says the
+    /// output may be wrong; this one says text the document explicitly
+    /// declared is missing from the output, which no other signal reveals.
+    DeclarationUnrepaired {
+        page: usize,
+        text: String,
+        found: usize,
+        wanted: usize,
+        x: f32,
+    },
+
+    /// Marked-content scopes still open at the end of the content stream.
+    ScopesLeftOpen { page: usize, count: usize },
 }
 
 impl Diagnostic {
@@ -139,8 +186,21 @@ impl Diagnostic {
             | Diagnostic::NoMediaBox { .. }
             | Diagnostic::TextUnextractable { .. }
             | Diagnostic::UnmatchedQuads { .. }
-            | Diagnostic::ActualTextNote { .. } => Severity::Warning,
+            | Diagnostic::DeclarationOutsideText { .. }
+            | Diagnostic::DeclarationCoversNoText { .. }
+            | Diagnostic::DeclarationUnanchored { .. }
+            | Diagnostic::DeclarationUnrepaired { .. }
+            | Diagnostic::ScopesLeftOpen { .. } => Severity::Warning,
         }
+    }
+
+    /// Does this belong on the record as well as on the document?
+    ///
+    /// Used so the extractor cannot attach a document-scope diagnostic to an
+    /// annotation by accident, and so adding a variant forces the question to
+    /// be answered rather than defaulted.
+    pub(crate) fn is_annotation_scope(&self) -> bool {
+        matches!(self, Diagnostic::UnmatchedQuads { .. })
     }
 }
 
@@ -215,7 +275,33 @@ impl fmt::Display for Diagnostic {
                 "{count} byte(s) fell on PDFDocEncoding slots the spec leaves \
                  undefined (0x7F, 0x9F, 0xAD) and were read as Latin-1"
             ),
-            Diagnostic::ActualTextNote { page, note } => write!(f, "page {page}: {note}"),
+            Diagnostic::DeclarationOutsideText { page, text } => write!(
+                f,
+                "page {page}: declaration {text:?} opens outside BT/ET; text suppressed"
+            ),
+            Diagnostic::DeclarationCoversNoText { page, text } => write!(
+                f,
+                "page {page}: declaration {text:?} covers no shown text; text suppressed"
+            ),
+            Diagnostic::DeclarationUnanchored { page, text } => write!(
+                f,
+                "page {page}: declaration {text:?} covers no shown text; nothing to \
+                 place it against"
+            ),
+            Diagnostic::DeclarationUnrepaired {
+                page,
+                text,
+                found,
+                wanted,
+                x,
+            } => write!(
+                f,
+                "page {page}: declaration {text:?}: found {found} of {wanted} \
+                 replacement characters at x={x:.2}; text suppressed"
+            ),
+            Diagnostic::ScopesLeftOpen { page, count } => {
+                write!(f, "page {page}: {count} marked-content scope(s) left open")
+            }
         }
     }
 }
@@ -451,6 +537,123 @@ mod tests {
              warning: page 1: 1/2 quads matched no glyphs (try --min-overlap or --geometry)\n\
              note: 1 string(s) carried no byte order mark and were read as UTF-8 \
              rather than PDFDocEncoding\n"
+        );
+    }
+
+    #[test]
+    fn the_actual_text_messages_survived_being_typed() {
+        // Taken from the `format!` calls in `actual_text` that these replaced.
+        // The page prefix used to be added by the caller wrapping a string;
+        // it is now part of the variant, so the line must come out the same.
+        assert_eq!(
+            Diagnostic::DeclarationOutsideText {
+                page: 2,
+                text: "Figure 3".to_string(),
+            }
+            .to_string(),
+            "page 2: declaration \"Figure 3\" opens outside BT/ET; text suppressed"
+        );
+        assert_eq!(
+            Diagnostic::DeclarationCoversNoText {
+                page: 1,
+                text: "A".to_string(),
+            }
+            .to_string(),
+            "page 1: declaration \"A\" covers no shown text; text suppressed"
+        );
+        assert_eq!(
+            Diagnostic::ScopesLeftOpen { page: 4, count: 2 }.to_string(),
+            "page 4: 2 marked-content scope(s) left open"
+        );
+    }
+
+    #[test]
+    fn an_unrepaired_declaration_names_the_text_it_withheld() {
+        // The one diagnostic that reports missing output rather than doubtful
+        // output, so it has to say which string went missing and where.
+        let d = Diagnostic::DeclarationUnrepaired {
+            page: 1,
+            text: "\u{2122}".to_string(),
+            found: 1,
+            wanted: 3,
+            x: 72.5,
+        };
+        assert_eq!(
+            d.to_string(),
+            "page 1: declaration \"™\": found 1 of 3 replacement characters \
+             at x=72.50; text suppressed"
+        );
+        assert_eq!(d.severity(), Severity::Warning);
+    }
+
+    // --------------------------------------------------------------- scope
+
+    #[test]
+    fn only_unmatched_quads_rides_on_the_record() {
+        // Everything else is a fact about the document or the page. Attaching
+        // one of those to an annotation would assert a link that has not been
+        // established — a broken declaration belongs to the annotations whose
+        // quads cover it, and nothing here computes that overlap yet.
+        assert!(
+            Diagnostic::UnmatchedQuads {
+                page: 1,
+                unmatched: 1,
+                total: 2,
+                rotation: 0,
+            }
+            .is_annotation_scope()
+        );
+        for d in [
+            Diagnostic::GeometryAssumed {
+                space: GlyphSpace::BottomUp,
+            },
+            Diagnostic::EncodingSniffed { count: 1 },
+            Diagnostic::ScopesLeftOpen { page: 1, count: 1 },
+            Diagnostic::DeclarationUnrepaired {
+                page: 1,
+                text: "x".to_string(),
+                found: 0,
+                wanted: 1,
+                x: 0.0,
+            },
+        ] {
+            assert!(!d.is_annotation_scope(), "{d:?} claimed annotation scope");
+        }
+    }
+
+    // --------------------------------------------------------- the wire
+
+    #[test]
+    fn serialises_internally_tagged_in_snake_case() {
+        let json = serde_json::to_string(&Diagnostic::UnmatchedQuads {
+            page: 3,
+            unmatched: 2,
+            total: 5,
+            rotation: 90,
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"unmatched_quads","page":3,"unmatched":2,"total":5,"rotation":90}"#
+        );
+    }
+
+    #[test]
+    fn the_wire_form_carries_no_rendered_message() {
+        // Deliberate: prose is for stderr. Putting it in the JSON invites
+        // consumers to parse it, and then the wording cannot be changed.
+        let json = serde_json::to_string(&Diagnostic::DeclarationUnrepaired {
+            page: 1,
+            text: "\u{2122}".to_string(),
+            found: 1,
+            wanted: 3,
+            x: 72.5,
+        })
+        .unwrap();
+        assert!(!json.contains("suppressed"), "{json}");
+        assert!(
+            json.contains(r#""kind":"declaration_unrepaired""#),
+            "{json}"
         );
     }
 

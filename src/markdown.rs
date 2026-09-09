@@ -438,6 +438,7 @@ mod tests {
             section: None,
             rect: [0.0; 4],
             link: String::new(),
+            diagnostics: Vec::new(),
         }
     }
 

@@ -49,6 +49,7 @@ fn rec(page: usize, kind: &str, covered: Option<&str>, comment: Option<&str>) ->
         section: None,
         rect: [0.0; 4],
         link: String::new(),
+        diagnostics: Vec::new(),
     }
 }
 
