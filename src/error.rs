@@ -31,13 +31,21 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 /// A boxed cause, so no dependency's error type appears in our signatures.
-type Source = Box<dyn StdError + Send + Sync + 'static>;
+pub type Source = Box<dyn StdError + Send + Sync + 'static>;
 
 /// Anything that stops a report existing at all.
 #[derive(Debug)]
-pub(crate) enum Error {
-    /// The file could not be opened, or is not a PDF this parser accepts.
-    Open { path: PathBuf, source: Source },
+pub enum Error {
+    /// The file could not be read.
+    ///
+    /// Belongs to the caller, not to `extract`, which takes bytes. Split out
+    /// of a variant that used to mean this *and* `Parse`, because "no such
+    /// file" and "not a PDF" want different reactions and arrived
+    /// indistinguishable.
+    Read { path: PathBuf, source: io::Error },
+
+    /// The bytes are not a PDF this parser accepts.
+    Parse { source: Source },
 
     /// The document opened, but its page tree could not be counted.
     ///
@@ -72,14 +80,20 @@ pub(crate) enum Error {
 }
 
 impl Error {
-    pub(crate) fn open(path: &Path, source: impl Into<Source>) -> Self {
-        Error::Open {
+    pub fn read(path: &Path, source: io::Error) -> Self {
+        Error::Read {
             path: path.to_path_buf(),
+            source,
+        }
+    }
+
+    pub fn parse(source: impl Into<Source>) -> Self {
+        Error::Parse {
             source: source.into(),
         }
     }
 
-    pub(crate) fn page_count(source: impl Into<Source>) -> Self {
+    pub fn page_count(source: impl Into<Source>) -> Self {
         Error::PageCount {
             source: source.into(),
         }
@@ -93,7 +107,8 @@ impl fmt::Display for Error {
     /// here would print it twice.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Open { path, .. } => write!(f, "could not read {}", path.display()),
+            Error::Read { path, .. } => write!(f, "could not read {}", path.display()),
+            Error::Parse { .. } => write!(f, "could not parse the document as a PDF"),
             Error::PageCount { .. } => write!(f, "could not count the pages of the document"),
             Error::Serialize { .. } => write!(f, "could not render the report as JSON"),
             Error::Write { .. } => write!(f, "could not write the report"),
@@ -104,9 +119,10 @@ impl fmt::Display for Error {
 impl StdError for Error {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
-            Error::Open { source, .. }
-            | Error::PageCount { source }
-            | Error::Serialize { source } => Some(source.as_ref()),
+            Error::Parse { source } | Error::PageCount { source } | Error::Serialize { source } => {
+                Some(source.as_ref())
+            }
+            Error::Read { source, .. } => Some(source),
             Error::Write { source } => Some(source),
         }
     }
@@ -134,7 +150,7 @@ impl From<io::Error> for Error {
 /// Without this the useful half is invisible: `could not read paper.pdf` says
 /// nothing, while the cause underneath it is `Failed to parse object at byte
 /// 12043`, which is the line someone can act on.
-pub(crate) fn report(e: &dyn StdError) -> String {
+pub fn report(e: &dyn StdError) -> String {
     let mut out = format!("error: {e}\n");
     let mut cause = e.source();
     while let Some(c) = cause {
@@ -178,13 +194,16 @@ mod tests {
         // pdf_oxide never carried it — the old message was just the parse
         // failure, with no way to tell which file produced it when several
         // were being processed.
-        let e = Error::open(Path::new("/tmp/paper.pdf"), Outer);
+        let e = Error::read(
+            Path::new("/tmp/paper.pdf"),
+            io::Error::new(io::ErrorKind::NotFound, "no such file"),
+        );
         assert_eq!(e.to_string(), "could not read /tmp/paper.pdf");
     }
 
     #[test]
     fn the_message_does_not_repeat_the_cause() {
-        let e = Error::open(Path::new("x.pdf"), Outer);
+        let e = Error::parse(Outer);
         assert!(!e.to_string().contains("malformed"));
         assert_eq!(
             e.source().map(ToString::to_string).as_deref(),
@@ -194,13 +213,29 @@ mod tests {
 
     #[test]
     fn report_walks_the_whole_chain() {
-        let e = Error::open(Path::new("x.pdf"), Outer);
+        let e = Error::parse(Outer);
         assert_eq!(
             report(&e),
-            "error: could not read x.pdf\n  \
+            "error: could not parse the document as a PDF\n  \
              caused by: malformed object\n  \
              caused by: at byte 12043\n"
         );
+    }
+
+    #[test]
+    fn a_missing_file_is_not_a_malformed_one() {
+        // These were one variant while `PdfDocument::open` did both jobs, so
+        // a typo in a filename and a corrupt PDF produced the same message.
+        // `extract` takes bytes now, which forces them apart.
+        let missing = Error::read(
+            Path::new("nope.pdf"),
+            io::Error::new(io::ErrorKind::NotFound, "no such file"),
+        );
+        let corrupt = Error::parse(Outer);
+        assert!(missing.to_string().contains("nope.pdf"));
+        assert!(!corrupt.to_string().contains("read"));
+        assert!(matches!(missing, Error::Read { .. }));
+        assert!(matches!(corrupt, Error::Parse { .. }));
     }
 
     #[test]

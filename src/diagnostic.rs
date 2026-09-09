@@ -45,7 +45,7 @@ use crate::GlyphSpace;
 ///
 /// Ordered, so `--strict` can be expressed as a threshold rather than a match.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Severity {
+pub enum Severity {
     /// Information that was asked for. Printed without a prefix, because it is
     /// an answer rather than a complaint: `--stats` reports counts, and
     /// labelling those `note:` would misdescribe them.
@@ -81,7 +81,7 @@ impl Severity {
 /// rest of the schema decisions.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum Diagnostic {
+pub enum Diagnostic {
     /// No page carried enough text to measure the glyph coordinate
     /// convention, so a convention was assumed.
     ///
@@ -320,7 +320,7 @@ impl fmt::Display for Diagnostic {
 /// page order, and a warning about page 7 reads better beside the `--stats`
 /// line for page 7 than in a block of warnings at the end.
 #[derive(Default, Debug)]
-pub(crate) struct Diagnostics {
+pub struct Diagnostics {
     items: Vec<Diagnostic>,
 }
 

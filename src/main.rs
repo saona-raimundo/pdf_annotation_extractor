@@ -172,7 +172,7 @@ enum GeometryArg {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
-enum GlyphSpace {
+pub enum GlyphSpace {
     TopDownTop,
     TopDownBottom,
     BottomUp,
@@ -344,25 +344,25 @@ fn baseline_key(space: GlyphSpace, c: &TextChar, page_height: f32) -> f32 {
     }
 }
 
-#[derive(Serialize)]
-struct Record {
-    page: usize,
-    kind: String,
+#[derive(Debug, Serialize)]
+pub struct Record {
+    pub page: usize,
+    pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    covered_text: Option<String>,
+    pub covered_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    comment: Option<String>,
+    pub comment: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    author: Option<String>,
+    pub author: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    modified: Option<String>,
+    pub modified: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    color: Option<String>,
+    pub color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    section: Option<String>,
+    pub section: Option<String>,
     /// [x, y, width, height] in PDF user space, y-up
-    rect: [f64; 4],
-    link: String,
+    pub rect: [f64; 4],
+    pub link: String,
     /// What had to be assumed or given up on for *this* item.
     ///
     /// Skipped when empty, so a document that extracted cleanly serialises
@@ -371,7 +371,7 @@ struct Record {
     /// join a `Report` alongside the annotations when the JSON stops being a
     /// bare array.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    diagnostics: Vec<Diagnostic>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// What `run` decided the process should exit with.
@@ -403,15 +403,119 @@ fn main() {
     }
 }
 
-fn run() -> Result<Outcome, Error> {
-    let args = Args::parse();
+/// How to read a document.
+///
+/// `#[non_exhaustive]` with public fields rather than a builder: there are
+/// eleven knobs already and the review adds more, so eleven setters would be
+/// eleven more things to keep in step, while `Options::default()` followed by
+/// assignment reads the same and stays non-breaking when a twelfth arrives.
+/// The commitment being made is that the field *names and types* are API —
+/// which is the one thing here that gets expensive after 1.0.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct Options {
+    /// Fraction of a glyph that must fall inside a quad to be claimed by it.
+    pub min_overlap: f32,
+    /// Gap between glyphs, as a fraction of font size, that becomes a space.
+    pub space_gap: f32,
+    /// The glyph coordinate convention, or `None` to measure it from the
+    /// document.
+    pub geometry: Option<GlyphSpace>,
+    /// Keep a line-break hyphen instead of joining the word across the break.
+    pub keep_hyphens: bool,
+    /// Leave U+FB00–U+FB06 as the font mapped them.
+    pub keep_ligatures: bool,
+    /// One line of covered text per quad rather than one per annotation.
+    pub split_quads: bool,
+    /// Emit annotations that have neither covered text nor a comment.
+    pub keep_empty: bool,
+    /// What to put in each record's `link`. `extract` takes bytes and so has
+    /// no filename of its own; without this the fragment is `#page=N` alone.
+    pub document_name: Option<String>,
+    /// Collect a `PageAnnotCounts` diagnostic per page. Off by default because
+    /// a 500-page document produces 500 of them.
+    pub page_counts: bool,
+    /// Trace geometry inference to stderr.
+    ///
+    /// A library writing to stderr is wrong, and these two are the exception
+    /// that proves it: they are a per-glyph trace, read once while diagnosing
+    /// a bad extraction. Doing it properly means `Options<'a>` holding a
+    /// `&mut dyn Write`, and a lifetime on the whole API to serve a debug aid
+    /// is a poor trade. Worth revisiting if anything but a terminal ever wants
+    /// them.
+    pub debug_geometry: bool,
+    /// Trace quad-to-glyph matching to stderr. See `debug_geometry`.
+    pub debug_quads: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            min_overlap: 0.5,
+            space_gap: 0.25,
+            geometry: None,
+            keep_hyphens: false,
+            keep_ligatures: false,
+            split_quads: false,
+            keep_empty: false,
+            document_name: None,
+            page_counts: false,
+            debug_geometry: false,
+            debug_quads: false,
+        }
+    }
+}
+
+impl From<&Args> for Options {
+    fn from(args: &Args) -> Self {
+        Options {
+            min_overlap: args.min_overlap,
+            space_gap: args.space_gap,
+            geometry: match args.geometry {
+                GeometryArg::Auto => None,
+                GeometryArg::TopDownTop => Some(GlyphSpace::TopDownTop),
+                GeometryArg::TopDownBottom => Some(GlyphSpace::TopDownBottom),
+                GeometryArg::BottomUp => Some(GlyphSpace::BottomUp),
+            },
+            keep_hyphens: args.keep_hyphens,
+            keep_ligatures: args.keep_ligatures,
+            split_quads: args.split_quads,
+            keep_empty: args.keep_empty,
+            document_name: args
+                .file
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string()),
+            page_counts: args.stats,
+            debug_geometry: args.debug_geometry,
+            debug_quads: args.debug_quads,
+        }
+    }
+}
+
+/// What one document yielded.
+///
+/// The annotations and what had to be assumed to get them, together, because
+/// the second is only useful beside the first. The JSON the CLI writes is
+/// still a bare array of `annotations` — whether the wire format becomes an
+/// object with both is a schema decision, and this type does not settle it.
+#[derive(Debug)]
+pub struct Report {
+    pub annotations: Vec<Record>,
+    pub diagnostics: Diagnostics,
+}
+
+/// Read every annotation worth reporting out of one PDF.
+///
+/// Takes the bytes rather than a path: there is nothing here that needs a
+/// filesystem, and the only reason it ever did was that `PdfDocument::open`
+/// was the constructor to hand. `from_bytes` is what `open` calls internally
+/// after reading the file, so this is the same code path with one fewer
+/// assumption about where the document came from — which is what lets the same
+/// function serve a CLI, a test harness and a browser.
+pub fn extract(bytes: Vec<u8>, opts: &Options) -> Result<Report, Error> {
     let mut diags = Diagnostics::default();
-    let doc = PdfDocument::open(&args.file).map_err(|e| Error::open(&args.file, e))?;
-    let file_name = args
-        .file
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let doc = PdfDocument::from_bytes(bytes).map_err(Error::parse)?;
+    let file_name = opts.document_name.clone().unwrap_or_default();
 
     let page_count = doc.page_count().map_err(Error::page_count)?;
     let sections = section_titles(&doc, page_count);
@@ -426,11 +530,9 @@ fn run() -> Result<Outcome, Error> {
     // glyphs a page and lost all seventeen items that way, the control
     // included. Sample the richest page instead, and treat "no evidence" as a
     // state to report rather than a value to assume.
-    let (space, inferred) = match args.geometry {
-        GeometryArg::TopDownTop => (GlyphSpace::TopDownTop, true),
-        GeometryArg::TopDownBottom => (GlyphSpace::TopDownBottom, true),
-        GeometryArg::BottomUp => (GlyphSpace::BottomUp, true),
-        GeometryArg::Auto => {
+    let (space, inferred) = match opts.geometry {
+        Some(space) => (space, true),
+        None => {
             let richest = (0..page_count.min(10))
                 .map(|page| (doc.extract_chars(page).map(|c| c.len()).unwrap_or(0), page))
                 .max_by_key(|&(len, _)| len)
@@ -441,10 +543,10 @@ fn run() -> Result<Outcome, Error> {
                     .get_page_media_box(page)
                     .unwrap_or((0.0, 0.0, 612.0, 792.0));
                 let chars = to_page_frame(doc.extract_chars(page).unwrap_or_default(), mx0, my0);
-                if args.debug_geometry {
+                if opts.debug_geometry {
                     eprintln!("geometry: inferring from page {} ({len} glyphs)", page + 1);
                 }
-                GlyphSpace::infer(&chars, my1 - my0, args.debug_geometry)
+                GlyphSpace::infer(&chars, my1 - my0, opts.debug_geometry)
             });
 
             match measured {
@@ -453,7 +555,7 @@ fn run() -> Result<Outcome, Error> {
             }
         }
     };
-    if args.debug_geometry {
+    if opts.debug_geometry {
         eprintln!(
             "geometry: using {space:?} ({})",
             if inferred { "measured" } else { "assumed" }
@@ -493,7 +595,7 @@ fn run() -> Result<Outcome, Error> {
         total_parsed += annots.len();
         total_dropped += raw_count.saturating_sub(annots.len());
 
-        if args.stats && raw_count > 0 {
+        if opts.page_counts && raw_count > 0 {
             diags.push(Diagnostic::PageAnnotCounts {
                 page: page + 1,
                 in_annots: raw_count,
@@ -577,7 +679,7 @@ fn run() -> Result<Outcome, Error> {
             height: page_height,
         };
 
-        if args.debug_geometry {
+        if opts.debug_geometry {
             debug_geometry(page, my0, my1, chars.as_deref(), &annots);
         }
 
@@ -596,10 +698,10 @@ fn run() -> Result<Outcome, Error> {
                         &Matching {
                             space,
                             frame,
-                            min_overlap: args.min_overlap,
-                            space_gap: args.space_gap,
-                            fold_ligatures: !args.keep_ligatures,
-                            debug: args.debug_quads,
+                            min_overlap: opts.min_overlap,
+                            space_gap: opts.space_gap,
+                            fold_ligatures: !opts.keep_ligatures,
+                            debug: opts.debug_quads,
                             units: &units,
                         },
                     );
@@ -628,7 +730,7 @@ fn run() -> Result<Outcome, Error> {
                         lines.into_iter().filter(|l| !l.text.is_empty()).collect();
                     if nonempty.is_empty() {
                         None
-                    } else if args.split_quads {
+                    } else if opts.split_quads {
                         Some(
                             nonempty
                                 .iter()
@@ -637,7 +739,7 @@ fn run() -> Result<Outcome, Error> {
                                 .join("\n"),
                         )
                     } else {
-                        Some(join_lines(&nonempty, args.keep_hyphens, &units, frame))
+                        Some(join_lines(&nonempty, opts.keep_hyphens, &units, frame))
                     }
                 }
                 _ => None,
@@ -668,7 +770,7 @@ fn run() -> Result<Outcome, Error> {
                 a.author.as_deref(),
             );
 
-            if covered_text.is_none() && comment.is_none() && !args.keep_empty {
+            if covered_text.is_none() && comment.is_none() && !opts.keep_empty {
                 continue;
             }
 
@@ -715,30 +817,47 @@ fn run() -> Result<Outcome, Error> {
 
     sort_records(&mut records);
 
+    Ok(Report {
+        annotations: records,
+        diagnostics: diags,
+    })
+}
+
+fn run() -> Result<Outcome, Error> {
+    let args = Args::parse();
+    let opts = Options::from(&args);
+
+    // Read the file here rather than inside `extract`, which is the whole
+    // point of it taking bytes. It also splits a failure that used to be one:
+    // a missing file and a malformed one arrived as the same error.
+    let bytes = std::fs::read(&args.file).map_err(|e| Error::read(&args.file, e))?;
+    let report = extract(bytes, &opts)?;
+
     let text = match args.format {
-        Format::Json => format!("{}\n", serde_json::to_string_pretty(&records)?),
+        Format::Json => format!("{}\n", serde_json::to_string_pretty(&report.annotations)?),
         Format::Markdown => {
             let style = Style {
                 descriptors: args.show.iter().copied().map(Descriptor::from).collect(),
                 numbering: args.number.into(),
                 ..Style::default()
             };
-            markdown::render(&records, &style)
+            markdown::render(&report.annotations, &style)
         }
     };
 
     // Before the report, not after: under `tool paper.pdf | head` the write
     // to stdout may return early on a closed pipe, and a warning the reader
-    // never sees is the failure mode this whole module exists to remove.
-    let notes = diags.render();
+    // never sees is the failure mode the diagnostics exist to remove.
+    let notes = report.diagnostics.render();
     if !notes.is_empty() {
         write_to(io::stderr().lock(), &notes)?;
     }
 
     write_out(&text)?;
 
-    Ok(if args.strict && diags.warnings() > 0 {
-        Outcome::StrictWarnings(diags.warnings())
+    let warnings = report.diagnostics.warnings();
+    Ok(if args.strict && warnings > 0 {
+        Outcome::StrictWarnings(warnings)
     } else {
         Outcome::Clean
     })
