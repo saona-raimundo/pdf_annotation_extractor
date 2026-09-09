@@ -12,6 +12,20 @@
 use super::*;
 use std::io::{self, Write};
 
+// The functions under test now live in sibling modules, so `use super::*` on
+// its own only reaches the crate root. Kept as one file rather than split
+// across those modules: the value here is that every test names the bug it
+// pins, and that reads as a single history.
+use pdf_oxide::annotation_types::AnnotationSubtype;
+use pdf_oxide::geometry::Rect;
+
+use crate::document::{RawString, choose_text, decode_pdf_string, hex_color, is_interesting};
+use crate::glyphs::to_page_frame;
+use crate::matching::{
+    Line, Matching, collapse_spaces, covers, join_lines, join_plain, order_reading,
+    overlap_fraction, quad_texts, quads_reach_segments, text_under_quads,
+};
+
 // ---------------------------------------------------------------- fixtures
 
 /// A glyph with baseline semantics, matching how pdf_oxide builds them:
