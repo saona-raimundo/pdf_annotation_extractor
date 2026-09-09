@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use clap::{Parser, ValueEnum};
 
 use pdf_annotation_extractor::{
-    Descriptor, Error, GlyphSpace, Numbering, Options, error, extract, render_markdown, write_to,
+    Descriptor, Error, GlyphSpace, Numbering, Options, Style, error, extract, markdown, write_to,
 };
 
 #[derive(Copy, Clone, PartialEq, ValueEnum)]
@@ -212,15 +212,13 @@ fn run() -> Result<Outcome, Error> {
 
     let text = match args.format {
         Format::Json => format!("{}\n", serde_json::to_string_pretty(&report.annotations)?),
-        Format::Markdown => render_markdown(
+        Format::Markdown => markdown::render(
             &report.annotations,
-            &args
-                .show
-                .iter()
-                .copied()
-                .map(Descriptor::from)
-                .collect::<Vec<_>>(),
-            args.number.into(),
+            &Style {
+                descriptors: args.show.iter().copied().map(Descriptor::from).collect(),
+                numbering: args.number.into(),
+                ..Style::default()
+            },
         ),
     };
 

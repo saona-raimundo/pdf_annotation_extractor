@@ -9,14 +9,19 @@
 //! `pub(crate) fn human(_: &str) -> Option<String> { None }` and that one
 //! descriptor renders nothing.
 
+use std::borrow::Cow;
+
 use crate::Record;
 
 /// One block of the report.
-// Variants other than the default are selected by whoever configures a Style,
-// so they look unconstructed to dead-code analysis.
-#[allow(dead_code)]
-#[derive(Copy, Clone, PartialEq)]
-pub(crate) enum Section {
+///
+/// Only `All` is used by the CLI. The other two were carrying
+/// `#[allow(dead_code)]` because a variant nothing in the crate constructs
+/// looks unused — which was true while `Style` was crate-private and there was
+/// nobody else to construct it. They are public API now, so the allow is gone
+/// and so is the reason for it.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Section {
     /// Everything, in reading order. The default: one flat list.
     All,
     /// Only markup and notes carrying a comment.
@@ -26,9 +31,8 @@ pub(crate) enum Section {
 }
 
 /// How to render markup that carries no comment.
-#[allow(dead_code)]
-#[derive(Copy, Clone, PartialEq)]
-pub(crate) enum BareStyle {
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum BareStyle {
     /// The same block shape as a commented item, with no comment lines. The
     /// default, so a flat list keeps one shape throughout.
     Block,
@@ -40,8 +44,7 @@ pub(crate) enum BareStyle {
 ///
 /// A colour and a kind locate an annotation on the page the way a page number
 /// locates it in the document. They are identifiers, not categories.
-#[allow(dead_code)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Descriptor {
     /// Currently the hex value. A content-dependent namer is planned: eight
     /// yellows in one document need eight distinguishable names, which a
@@ -57,8 +60,7 @@ pub enum Descriptor {
 }
 
 /// Item numbering, so a remark can be cited as "page 3, note 2".
-#[allow(dead_code)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Numbering {
     None,
     /// Counts across the whole report.
@@ -71,9 +73,8 @@ pub enum Numbering {
 ///
 /// Every level was checked against a CommonMark parser with the text placed
 /// inside a list item exactly as this module emits it.
-#[allow(dead_code)]
-#[derive(Copy, Clone, PartialEq)]
-pub(crate) enum Escaping {
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Escaping {
     /// Pass through. A comment beginning `# ` becomes a heading and breaks the
     /// structure of the report.
     None,
@@ -95,25 +96,31 @@ pub(crate) enum Escaping {
 }
 
 /// The knobs. Change these rather than the rendering functions where possible.
-pub(crate) struct Style {
+/// Deliberately *not* `#[non_exhaustive]`, unlike [`crate::Options`]. A
+/// fifteen-field record is built with `Style { .. Style::default() }`, and
+/// `#[non_exhaustive]` forbids that syntax from another crate — every
+/// construction would become fifteen assignments. The trade is that adding a
+/// field here is a breaking change, which `Options` avoids and this does not.
+#[derive(Clone, Debug)]
+pub struct Style {
     /// Which blocks to emit, in order. Drop an entry to omit that block.
     pub order: Vec<Section>,
     /// Heading for a block. Empty string emits no heading at all.
-    pub heading_all: &'static str,
-    pub heading_commented: &'static str,
-    pub heading_bare: &'static str,
+    pub heading_all: Cow<'static, str>,
+    pub heading_commented: Cow<'static, str>,
+    pub heading_bare: Cow<'static, str>,
     /// Prefix for each item, including leading space. Its width also fixes
     /// the item's content column, and so the quote line's indent.
-    pub bullet: &'static str,
+    pub bullet: Cow<'static, str>,
     /// Margin for the comment paragraphs. Four or more *beyond* the content
     /// column would turn them into a code block, so keep it modest.
-    pub indent: &'static str,
+    pub indent: Cow<'static, str>,
     /// Prefix for the covered-text quote line.
-    pub quote: &'static str,
+    pub quote: Cow<'static, str>,
     /// Written before the page number: `Page #12`.
-    pub page_label: &'static str,
+    pub page_label: Cow<'static, str>,
     /// Written after the locator: `Page #12:`.
-    pub item_suffix: &'static str,
+    pub item_suffix: Cow<'static, str>,
     pub bare: BareStyle,
     pub numbering: Numbering,
     /// Extra identifiers in parentheses, in this order. Empty by default.
@@ -128,14 +135,14 @@ impl Default for Style {
     fn default() -> Self {
         Style {
             order: vec![Section::All],
-            heading_all: "## Comments",
-            heading_commented: "## Detailed comments",
-            heading_bare: "## Highlights",
-            bullet: "- ",
-            indent: "    ",
-            quote: "> ",
-            page_label: "Page #",
-            item_suffix: ":",
+            heading_all: Cow::Borrowed("## Comments"),
+            heading_commented: Cow::Borrowed("## Detailed comments"),
+            heading_bare: Cow::Borrowed("## Highlights"),
+            bullet: Cow::Borrowed("- "),
+            indent: Cow::Borrowed("    "),
+            quote: Cow::Borrowed("> "),
+            page_label: Cow::Borrowed("Page #"),
+            item_suffix: Cow::Borrowed(":"),
             bare: BareStyle::Block,
             numbering: Numbering::None,
             descriptors: vec![],
@@ -150,7 +157,7 @@ impl Default for Style {
 ///
 /// Returns a String rather than printing, so the caller decides where it goes
 /// and tests can assert on it.
-pub(crate) fn render(records: &[Record], style: &Style) -> String {
+pub fn render(records: &[Record], style: &Style) -> String {
     // Numbers are assigned over the whole report in reading order, before any
     // sectioning, so an item keeps the same number wherever it ends up.
     let numbered = assign_numbers(records, style);
@@ -165,10 +172,13 @@ pub(crate) fn render(records: &[Record], style: &Style) -> String {
             continue;
         }
 
-        let heading = match section {
-            Section::All => style.heading_all,
-            Section::Commented => style.heading_commented,
-            Section::Bare => style.heading_bare,
+        // `&str`, not the field: `Cow` is not `Copy`, so naming the field
+        // here would try to move it out of a borrowed `Style`. The annotation
+        // makes each arm deref-coerce instead.
+        let heading: &str = match section {
+            Section::All => &style.heading_all,
+            Section::Commented => &style.heading_commented,
+            Section::Bare => &style.heading_bare,
         };
         if !heading.is_empty() {
             out.push_str(heading);
@@ -470,7 +480,7 @@ mod tests {
                 &r,
                 None,
                 &Style {
-                    bullet: " * ",
+                    bullet: " * ".into(),
                     ..Style::default()
                 }
             )
@@ -481,7 +491,7 @@ mod tests {
                 &r,
                 None,
                 &Style {
-                    bullet: "",
+                    bullet: "".into(),
                     ..Style::default()
                 }
             )
@@ -522,7 +532,7 @@ mod tests {
             render(
                 &[rec(1, "note", None, Some("x"))],
                 &Style {
-                    heading_all: "",
+                    heading_all: "".into(),
                     ..Style::default()
                 }
             ),
@@ -619,9 +629,9 @@ mod tests {
             render(
                 &[r],
                 &Style {
-                    indent: "",
-                    page_label: "Page ",
-                    item_suffix: "",
+                    indent: "".into(),
+                    page_label: "Page ".into(),
+                    item_suffix: "".into(),
                     descriptors: vec![Descriptor::Colour, Descriptor::Kind],
                     ..Style::default()
                 }

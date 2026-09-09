@@ -20,9 +20,8 @@ use pdf_oxide::PdfDocument;
 use pdf_oxide::layout::TextChar;
 use serde::Serialize;
 
-mod markdown;
-use markdown::Style;
-pub use markdown::{Descriptor, Numbering};
+pub mod markdown;
+pub use markdown::{BareStyle, Descriptor, Escaping, Numbering, Section, Style};
 
 mod date;
 
@@ -50,27 +49,6 @@ use document::{
 };
 use glyphs::{debug_geometry, to_page_frame};
 use matching::{Line, Matching, join_lines, quads_reach_segments, text_under_quads};
-
-/// Render a report as Markdown.
-///
-/// A narrow door onto `markdown::Style`, which has six `&'static str` fields
-/// and so cannot be handed to a caller that builds its strings at runtime.
-/// Widening it means `Cow<'static, str>` throughout, which is its own change;
-/// until then this exposes the two knobs the CLI actually has.
-pub fn render_markdown(
-    annotations: &[Record],
-    descriptors: &[Descriptor],
-    numbering: Numbering,
-) -> String {
-    markdown::render(
-        annotations,
-        &Style {
-            descriptors: descriptors.to_vec(),
-            numbering,
-            ..Style::default()
-        },
-    )
-}
 
 #[derive(Debug, Serialize)]
 pub struct Record {
