@@ -37,7 +37,7 @@ mod pdf_string;
 use pdf_string::Encoding;
 
 mod actual_text;
-use actual_text::{Frame, Unit};
+use actual_text::{Frame, Segment, Unit, Unrepaired};
 
 mod diagnostic;
 use diagnostic::{Diagnostic, Diagnostics};
@@ -526,6 +526,7 @@ fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
         // user space, before `to_page_frame`, because that is the space the
         // content stream measures in.
         let mut units: Vec<Unit> = Vec::new();
+        let mut unrepaired: Vec<Unrepaired> = Vec::new();
         let chars: Option<Vec<TextChar>> = if annots.iter().any(has_quads) {
             // `None`, not an empty glyph list. An empty list would match no
             // quads and then blame the geometry — `quads matched no glyphs
@@ -539,9 +540,17 @@ fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
                         let (decls, unsupported) = actual_text::scan(&content, &fonts, page + 1);
                         let (found, broken) = actual_text::repair(&mut cs, &decls, page + 1);
                         units = found;
-                        for d in unsupported.into_iter().chain(broken) {
+                        for d in unsupported {
                             diags.push(d);
                         }
+                        // Every broken declaration reaches the document
+                        // channel whether or not an annotation covers it; the
+                        // ones that are covered are attached to those items
+                        // below.
+                        for u in &broken {
+                            diags.push(u.diagnostic.clone());
+                        }
+                        unrepaired = broken;
                     }
                     Some(to_page_frame(cs, mx0, my0))
                 }
@@ -627,6 +636,19 @@ fn run() -> Result<Outcome, Box<dyn std::error::Error>> {
                 }
                 _ => None,
             };
+
+            // A broken declaration leaves its mojibake in the glyph list, so
+            // this item's covered_text may contain characters the document
+            // said read as something else — and nothing about the geometry
+            // looks wrong, because the quads matched glyphs. This is the only
+            // signal, so it has to travel with the item.
+            if let Some(quads) = a.quad_points.as_ref() {
+                for u in &unrepaired {
+                    if quads_reach_segments(quads, &u.segments) {
+                        item_diags.push(u.diagnostic.clone());
+                    }
+                }
+            }
 
             // pdf_oxide's own `contents`/`author` go through from_utf8_lossy,
             // so prefer the raw dictionary and only fall back when the key is
@@ -843,6 +865,36 @@ fn decode_pdf_string(bytes: &[u8]) -> String {
 
 fn has_quads(a: &Annotation) -> bool {
     a.quad_points.as_ref().is_some_and(|q| !q.is_empty())
+}
+
+/// Does this annotation's selection reach the extent of a declaration?
+///
+/// Both sides are in raw user space, y-up, before the media box origin is
+/// subtracted — quads as `/QuadPoints` gave them, segments as the content
+/// stream measured them — so no frame is needed and no top-down flip happens.
+///
+/// A segment is a horizontal run at a baseline, so the test is: the x ranges
+/// meet, and the baseline falls inside the quad vertically. The baseline of a
+/// span lies inside any quad that selects it, because that is what selecting
+/// text means; a quad tight enough to exclude it would match no glyphs on that
+/// line either.
+///
+/// Deliberately generous where it is uncertain. This decides whether a warning
+/// is attached, and a warning on a neighbouring item costs a moment's
+/// attention, while a missing one costs the reader a wrong quotation they had
+/// no reason to doubt.
+fn quads_reach_segments(quads: &[[f64; 8]], segments: &[Segment]) -> bool {
+    quads.iter().any(|quad| {
+        let xs = [quad[0], quad[2], quad[4], quad[6]];
+        let ys = [quad[1], quad[3], quad[5], quad[7]];
+        let qx0 = xs.iter().cloned().fold(f64::INFINITY, f64::min) as f32;
+        let qx1 = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max) as f32;
+        let qy0 = ys.iter().cloned().fold(f64::INFINITY, f64::min) as f32;
+        let qy1 = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max) as f32;
+        segments.iter().any(|s| {
+            s.baseline >= qy0 && s.baseline <= qy1 && s.x <= qx1 && (s.x + s.advance) >= qx0
+        })
+    })
 }
 
 fn is_interesting(s: &AnnotationSubtype) -> bool {

@@ -234,6 +234,20 @@ pub(crate) fn synthesise(
         .collect()
 }
 
+/// A declaration whose replacement chain could not be found whole.
+///
+/// Carries the diagnostic and where the declaration sat, because reporting it
+/// needs the first and working out which annotations are affected needs the
+/// second.
+#[derive(Clone, Debug)]
+pub(crate) struct Unrepaired {
+    pub diagnostic: Diagnostic,
+    /// The extent the declaration covered, in user space — the same space the
+    /// raw `/QuadPoints` arrive in, so a caller can compare the two without a
+    /// frame.
+    pub segments: Vec<Segment>,
+}
+
 /// Remove the replacement pdf_oxide typeset, and hand back the declarations as
 /// units.
 ///
@@ -244,14 +258,26 @@ pub(crate) fn synthesise(
 /// cursor never visits. The count comes from the declaration — one character
 /// per UTF-8 byte, because that is what the defect does.
 ///
-/// A chain that breaks early is not repaired on a guess. The declaration is
-/// dropped, a diagnostic is returned, and the caller suppresses the text
-/// rather than reporting characters it cannot vouch for.
+/// A chain that breaks early is not repaired on a guess: the declaration is
+/// dropped and reported as [`Unrepaired`].
+///
+/// **The corrupted characters are left in place.** Only a complete chain
+/// identifies which glyphs are the replacement, so a broken one leaves nothing
+/// safe to delete — the extent is measured from the content stream's own
+/// metrics while the glyph positions come from pdf_oxide, and slicing on the
+/// former would remove real text whenever the two disagree. So the mojibake
+/// reaches the output, the quads match it, and no geometric warning fires. The
+/// only signal is the diagnostic, which is why it is attached to every
+/// annotation whose selection overlaps `segments` rather than being reported
+/// once for the page.
+///
+/// This comment previously claimed the caller suppressed the text. Nothing
+/// did.
 pub(crate) fn repair(
     chars: &mut Vec<TextChar>,
     decls: &[Declaration],
     page: usize,
-) -> (Vec<Unit>, Vec<Diagnostic>) {
+) -> (Vec<Unit>, Vec<Unrepaired>) {
     const EPS: f32 = 0.05;
 
     let mut remove = vec![false; chars.len()];
@@ -260,9 +286,14 @@ pub(crate) fn repair(
 
     for d in decls {
         let Some(anchor) = d.segments.first() else {
-            diagnostics.push(Diagnostic::DeclarationUnanchored {
-                page,
-                text: d.text.clone(),
+            diagnostics.push(Unrepaired {
+                diagnostic: Diagnostic::DeclarationUnanchored {
+                    page,
+                    text: d.text.clone(),
+                },
+                // No segments, so nothing to attribute it to. It reaches the
+                // document channel only.
+                segments: Vec::new(),
             });
             continue;
         };
@@ -287,12 +318,15 @@ pub(crate) fn repair(
         }
 
         if chain.len() != wanted {
-            diagnostics.push(Diagnostic::DeclarationUnrepaired {
-                page,
-                text: d.text.clone(),
-                found: chain.len(),
-                wanted,
-                x: anchor.x,
+            diagnostics.push(Unrepaired {
+                diagnostic: Diagnostic::DeclarationUnrepaired {
+                    page,
+                    text: d.text.clone(),
+                    found: chain.len(),
+                    wanted,
+                    x: anchor.x,
+                },
+                segments: d.segments.clone(),
             });
             continue;
         }

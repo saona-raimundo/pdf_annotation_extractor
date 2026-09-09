@@ -23,10 +23,10 @@
 //! warning. Two channels for one fact, because which one the user is reading
 //! is not ours to guess.
 //!
-//! Each variant below says which it is. The `/ActualText` ones are document
-//! scope for now: only `DeclarationUnrepaired` carries a position, so only it
-//! could be attributed to the annotations whose quads cover it, and doing that
-//! by geometric overlap is its own change.
+//! Each variant below says which it is. Of the `/ActualText` ones only
+//! `DeclarationUnrepaired` carries a position, so it is the only one that can
+//! be attributed to the annotations whose quads cover it; the rest describe
+//! the page or the content stream and stay at document scope.
 //!
 //! # What this is not
 //!
@@ -158,9 +158,14 @@ pub(crate) enum Diagnostic {
     /// The chain of re-encoded replacement characters was not found whole, so
     /// the declared text could not be repaired and was **suppressed**.
     ///
+    /// **Annotation scope**, for every annotation whose selection overlaps the
+    /// declaration's extent, and document scope besides.
+    ///
     /// The most important thing in this module. Every other variant says the
-    /// output may be wrong; this one says text the document explicitly
-    /// declared is missing from the output, which no other signal reveals.
+    /// output may be wrong; this one says the output contains characters the
+    /// document explicitly said read as something else — and the geometry
+    /// looks fine, because the quads did match glyphs. Nothing else reveals
+    /// it.
     DeclarationUnrepaired {
         page: usize,
         text: String,
@@ -200,7 +205,10 @@ impl Diagnostic {
     /// annotation by accident, and so adding a variant forces the question to
     /// be answered rather than defaulted.
     pub(crate) fn is_annotation_scope(&self) -> bool {
-        matches!(self, Diagnostic::UnmatchedQuads { .. })
+        matches!(
+            self,
+            Diagnostic::UnmatchedQuads { .. } | Diagnostic::DeclarationUnrepaired { .. }
+        )
     }
 }
 
@@ -589,11 +597,9 @@ mod tests {
     // --------------------------------------------------------------- scope
 
     #[test]
-    fn only_unmatched_quads_rides_on_the_record() {
-        // Everything else is a fact about the document or the page. Attaching
-        // one of those to an annotation would assert a link that has not been
-        // established — a broken declaration belongs to the annotations whose
-        // quads cover it, and nothing here computes that overlap yet.
+    fn the_two_item_level_facts_ride_on_the_record() {
+        // The two that describe one item: a selection whose quads found no
+        // glyphs, and one that may contain text the document disowned.
         assert!(
             Diagnostic::UnmatchedQuads {
                 page: 1,
@@ -603,18 +609,28 @@ mod tests {
             }
             .is_annotation_scope()
         );
-        for d in [
-            Diagnostic::GeometryAssumed {
-                space: GlyphSpace::BottomUp,
-            },
-            Diagnostic::EncodingSniffed { count: 1 },
-            Diagnostic::ScopesLeftOpen { page: 1, count: 1 },
+        assert!(
             Diagnostic::DeclarationUnrepaired {
                 page: 1,
                 text: "x".to_string(),
                 found: 0,
                 wanted: 1,
                 x: 0.0,
+            }
+            .is_annotation_scope()
+        );
+        // Document scope: these describe the page, the content stream or the
+        // document, and attaching one to an item would assert a link nothing
+        // has established.
+        for d in [
+            Diagnostic::GeometryAssumed {
+                space: GlyphSpace::BottomUp,
+            },
+            Diagnostic::EncodingSniffed { count: 1 },
+            Diagnostic::ScopesLeftOpen { page: 1, count: 1 },
+            Diagnostic::DeclarationUnanchored {
+                page: 1,
+                text: "x".to_string(),
             },
         ] {
             assert!(!d.is_annotation_scope(), "{d:?} claimed annotation scope");

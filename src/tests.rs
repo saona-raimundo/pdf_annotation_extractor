@@ -972,3 +972,168 @@ fn other_write_errors_still_propagate() {
     // A full disk or a bad redirect must not be swallowed along with it.
     assert!(write_to(FailingWriter(io::ErrorKind::PermissionDenied), "x").is_err());
 }
+
+// -------------------------------------------------- repair, broken chain
+// The branch that had never run in a test. `repair` finds the replacement by
+// walking a chain of characters at successive cursor positions; when that
+// chain is not there whole, the declaration is dropped and the corrupted
+// glyphs are LEFT IN THE LIST. Nothing removes them, so the quads go on to
+// match them and no geometric warning fires. These pin that, because the
+// behaviour is only defensible if it is reported, and it is only reported if
+// the diagnostic reaches the items affected.
+
+/// The three characters pdf_oxide typesets in place of a declared `™`: its
+/// UTF-8 bytes pushed back through the font, at successive cursor positions.
+fn mojibake_chain(x: f32, baseline: f32) -> Vec<TextChar> {
+    ['â', '„', '¢']
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| glyph(c, x + i as f32 * 3.0, baseline, 3.0, 10.0))
+        .collect()
+}
+
+fn declaration(text: &str, x: f32, baseline: f32, advance: f32) -> actual_text::Declaration {
+    actual_text::Declaration {
+        text: text.to_string(),
+        segments: vec![actual_text::Segment {
+            x,
+            baseline,
+            advance,
+        }],
+    }
+}
+
+#[test]
+fn a_complete_chain_is_removed_and_becomes_a_unit() {
+    // The control for the two tests below: when the chain is all there, the
+    // corrupted glyphs go and the declaration is handed back as a unit.
+    let mut chars = mojibake_chain(100.0, 700.0);
+    let decls = vec![declaration("\u{2122}", 100.0, 700.0, 9.0)];
+    let (units, broken) = actual_text::repair(&mut chars, &decls, 1);
+    assert_eq!(units.len(), 1);
+    assert_eq!(units[0].text, "\u{2122}");
+    assert!(broken.is_empty());
+    assert!(chars.is_empty(), "the replacement should have been removed");
+}
+
+#[test]
+fn a_broken_chain_leaves_the_mojibake_in_the_glyph_list() {
+    // One character short of the chain, as happens when the run is interrupted
+    // — a line break, or a real glyph the walk cannot step past. `wanted` is 3
+    // because `™` is three UTF-8 bytes.
+    let mut chars = mojibake_chain(100.0, 700.0);
+    chars.pop();
+    let decls = vec![declaration("\u{2122}", 100.0, 700.0, 9.0)];
+
+    let (units, broken) = actual_text::repair(&mut chars, &decls, 1);
+
+    assert!(units.is_empty(), "a guess must not be emitted as a unit");
+    // TextChar has no PartialEq, and the characters are the point anyway:
+    // this is the mojibake that goes on to reach the reader's notes.
+    assert_eq!(
+        chars.iter().map(|c| c.char).collect::<String>(),
+        "\u{e2}\u{201e}",
+        "the corrupted glyphs must be left in place"
+    );
+    assert_eq!(broken.len(), 1);
+    assert_eq!(
+        broken[0].diagnostic,
+        Diagnostic::DeclarationUnrepaired {
+            page: 1,
+            text: "\u{2122}".to_string(),
+            found: 2,
+            wanted: 3,
+            x: 100.0,
+        }
+    );
+}
+
+#[test]
+fn a_broken_chain_reports_the_extent_so_it_can_be_attributed() {
+    // The segments are the whole point of returning `Unrepaired` rather than a
+    // bare diagnostic: without them the warning can only be said of the page.
+    let mut chars = mojibake_chain(100.0, 700.0);
+    chars.pop();
+    let decls = vec![declaration("\u{2122}", 100.0, 700.0, 9.0)];
+    let (_, broken) = actual_text::repair(&mut chars, &decls, 1);
+    assert_eq!(broken[0].segments.len(), 1);
+    assert_eq!(broken[0].segments[0].x, 100.0);
+    assert_eq!(broken[0].segments[0].baseline, 700.0);
+    assert_eq!(broken[0].segments[0].advance, 9.0);
+}
+
+// ------------------------------------------- quads_reach_segments
+// Which annotations a broken declaration is reported against. Raw user space
+// on both sides, y-up: no frame, no flip.
+
+/// A rectangular quad, given as the eight floats /QuadPoints holds.
+fn quad2(x0: f64, y0: f64, x1: f64, y1: f64) -> [f64; 8] {
+    [x0, y1, x1, y1, x0, y0, x1, y0]
+}
+
+fn seg(x: f32, baseline: f32, advance: f32) -> actual_text::Segment {
+    actual_text::Segment {
+        x,
+        baseline,
+        advance,
+    }
+}
+
+#[test]
+fn a_quad_over_the_declaration_reaches_it() {
+    let quads = [quad2(90.0, 695.0, 200.0, 710.0)];
+    assert!(quads_reach_segments(&quads, &[seg(100.0, 700.0, 9.0)]));
+}
+
+#[test]
+fn a_quad_on_another_line_does_not() {
+    // The vertical test is the baseline, which is what keeps a highlight on
+    // line N from being blamed for a declaration on line N+1.
+    let quads = [quad2(90.0, 675.0, 200.0, 690.0)];
+    assert!(!quads_reach_segments(&quads, &[seg(100.0, 700.0, 9.0)]));
+}
+
+#[test]
+fn a_quad_left_of_the_declaration_does_not() {
+    let quads = [quad2(10.0, 695.0, 99.0, 710.0)];
+    assert!(!quads_reach_segments(&quads, &[seg(100.0, 700.0, 9.0)]));
+}
+
+#[test]
+fn touching_at_an_edge_counts_as_reaching() {
+    // Inclusive on purpose. A selection that ends exactly where the
+    // declaration begins may or may not have taken its first glyph, and the
+    // cost of guessing wrong is asymmetric: a warning on an item that turns
+    // out fine is noise, a missing one is a wrong quotation.
+    let quads = [quad2(10.0, 695.0, 100.0, 710.0)];
+    assert!(quads_reach_segments(&quads, &[seg(100.0, 700.0, 9.0)]));
+}
+
+#[test]
+fn any_quad_reaching_any_segment_is_enough() {
+    // A declaration broken across a line break has one segment per line, and a
+    // multi-line selection has one quad per line. Either side matching once is
+    // enough to make the item suspect.
+    let quads = [
+        quad2(10.0, 675.0, 80.0, 690.0),
+        quad2(90.0, 695.0, 200.0, 710.0),
+    ];
+    let segments = [seg(300.0, 720.0, 9.0), seg(100.0, 700.0, 9.0)];
+    assert!(quads_reach_segments(&quads, &segments));
+}
+
+#[test]
+fn a_declaration_with_no_extent_reaches_nothing() {
+    // `DeclarationUnanchored` carries no segments, so it can never be
+    // attributed to an item and stays on the document channel.
+    let quads = [quad2(0.0, 0.0, 1000.0, 1000.0)];
+    assert!(!quads_reach_segments(&quads, &[]));
+}
+
+#[test]
+fn corner_order_within_a_quad_does_not_matter() {
+    // Producers disagree on /QuadPoints corner order, so the extent is taken
+    // over all four points. Same rectangle, corners rotated.
+    let rotated = [200.0, 710.0, 90.0, 710.0, 200.0, 695.0, 90.0, 695.0];
+    assert!(quads_reach_segments(&[rotated], &[seg(100.0, 700.0, 9.0)]));
+}
