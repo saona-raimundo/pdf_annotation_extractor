@@ -1,5 +1,11 @@
-//! Fixture tests: run the binary over real annotated PDFs and compare against
-//! each fixture family's `expected.json`.
+//! Fixture tests: extract from real annotated PDFs and compare against each
+//! fixture family's `expected.json`.
+//!
+//! Calls the library rather than spawning the binary. That is not only faster:
+//! a subprocess hands back stdout, so the diagnostics went to fd 2 and nothing
+//! here could see them. Half of what extraction knows — a page skipped, an
+//! encoding assumed, a declaration withheld — was untestable for as long as
+//! this went through a process boundary.
 //!
 //! `expected.json` states what the *document* means. It is never adjusted to
 //! match a producer or to match us, and nothing here is allowlisted: every
@@ -18,15 +24,22 @@
 //! Adding a producer, or a whole family, needs no change to this file.
 //! (Cargo ignores `tests/basic/` as a build target: it has no `main.rs`.)
 //!
+//! `diagnostics_inventory` is `#[ignore]`d: it prints what every fixture
+//! reports rather than asserting anything, because an assertion has to be
+//! written against what the corpus actually says and that is not yet written
+//! down anywhere. Run it with
+//! `cargo test --test fixtures diagnostics_inventory -- --ignored --nocapture`.
+//!
 //! Pairing. An expectation is bound to the record that claims it by its
 //! sentinel where it has one, and by page + subtype + comment where it does
 //! not. Both kinds still assert `covered_text`: see `matched_by_sentinel`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::Deserialize;
+
+use pdf_annotation_extractor::{Options, Record, Report};
 
 // --------------------------------------------------------------- expected.json
 
@@ -80,20 +93,6 @@ struct Skips {
 #[derive(Deserialize)]
 struct SkipEntry {
     reason: String,
-}
-
-// ------------------------------------------------------------- our own output
-
-#[derive(Deserialize)]
-struct Record {
-    page: usize,
-    kind: String,
-    #[serde(default)]
-    covered_text: Option<String>,
-    #[serde(default)]
-    comment: Option<String>,
-    #[serde(default)]
-    author: Option<String>,
 }
 
 // ------------------------------------------------------------------- discovery
@@ -177,29 +176,23 @@ fn families() -> Vec<Family> {
 
 // --------------------------------------------------------------------- helpers
 
-fn extract(pdf: &Path) -> Vec<Record> {
-    let out = Command::new(env!("CARGO_BIN_EXE_pdf_annotation_extractor"))
-        .arg(pdf)
-        .arg("--format")
-        .arg("json")
-        .output()
-        .unwrap_or_else(|e| panic!("failed to run the binary: {e}"));
+/// Extract from one fixture, or fail the test naming the file.
+///
+/// Default options throughout. A fixture that only passes under a flag is not
+/// evidence about the document, and `expected.json` states what the document
+/// means — so anything needing `--min-overlap` or an explicit `--geometry` to
+/// come out right is a bug here, not a configuration.
+///
+/// `document_name` is left unset: it only feeds each record's `link`, which no
+/// expectation asserts.
+fn extracted(pdf: &Path) -> Report {
+    let bytes = std::fs::read(pdf).unwrap_or_else(|e| panic!("cannot read {}: {e}", pdf.display()));
+    pdf_annotation_extractor::extract(bytes, &Options::default())
+        .unwrap_or_else(|e| panic!("{}", pdf_annotation_extractor::error::report(&e).trim_end()))
+}
 
-    assert!(
-        out.status.success(),
-        "extractor exited with {} on {}\nstderr:\n{}",
-        out.status,
-        pdf.display(),
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-        panic!(
-            "output was not valid JSON for {}: {e}\nstdout:\n{}",
-            pdf.display(),
-            String::from_utf8_lossy(&out.stdout)
-        )
-    })
+fn records(pdf: &Path) -> Vec<Record> {
+    extracted(pdf).annotations
 }
 
 /// Every sentinel appearing in a string, e.g. "E1A" from "... [[E1A]]".
@@ -422,7 +415,7 @@ fn producers_match_expected() {
 
     for family in families() {
         for pdf in &family.producers {
-            let got = extract(pdf);
+            let got = records(pdf);
             let paired = pair(&family.expected.annotations, &got);
             let tag = label(&family.name, pdf);
             let skipped = skips_for(&family, pdf);
@@ -586,7 +579,7 @@ fn producers_match_expected() {
 fn unannotated_pages_produce_nothing() {
     for family in families() {
         for pdf in &family.producers {
-            let got = extract(pdf);
+            let got = records(pdf);
             let tag = label(&family.name, pdf);
             for page in &family.expected.pages_without_annotations {
                 let n = got.iter().filter(|r| r.page == *page).count();
@@ -604,7 +597,7 @@ fn unannotated_pages_produce_nothing() {
 fn no_duplicate_or_extra_records() {
     for family in families() {
         for pdf in &family.producers {
-            let got = extract(pdf);
+            let got = records(pdf);
             let tag = label(&family.name, pdf);
 
             let mut counts: BTreeMap<String, usize> = BTreeMap::new();
@@ -655,5 +648,79 @@ fn no_duplicate_or_extra_records() {
                 unattributed.join("\n  ")
             );
         }
+    }
+}
+
+// ------------------------------------------------------- diagnostics inventory
+
+/// Print what every fixture reports, and assert nothing.
+///
+/// Ignored on purpose. A real assertion here — "no fixture produces a warning"
+/// — would be the most valuable test in the suite, because a warning is how a
+/// plausible wrong answer announces itself. But it can only be written against
+/// what the corpus actually says, and until this has been run once, nothing
+/// records that: a `UnmatchedQuads` on a Papers file may be a producer writing
+/// malformed quads, or may be our geometry, and the difference is not
+/// guessable from here.
+///
+/// So this is the characterisation step. Run it, read the output, and the
+/// expectations become writable:
+///
+/// ```text
+/// cargo test --test fixtures diagnostics_inventory -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "prints an inventory; assert on it once the corpus has been read"]
+fn diagnostics_inventory() {
+    let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+    let (mut clean, mut noisy) = (0usize, 0usize);
+
+    for family in families() {
+        for pdf in &family.producers {
+            let out = extracted(pdf);
+            let tag = label(&family.name, pdf);
+            let notes = out.diagnostics.render();
+
+            // The prefix before the first colon is the variant's own wording,
+            // which is what an assertion would key on. Tallied across every
+            // producer: a prefix on all of a family's producers is a fact
+            // about the document, one on a single producer is a fact about
+            // that producer.
+            for line in notes.lines() {
+                let kind = line.split_once(':').map(|(k, _)| k).unwrap_or(line);
+                *kinds.entry(kind.to_string()).or_default() += 1;
+            }
+
+            let items: Vec<String> = out
+                .annotations
+                .iter()
+                .flat_map(|r| {
+                    r.diagnostics
+                        .iter()
+                        .map(move |d| format!("on page {} ({}): {d}", r.page, r.kind))
+                })
+                .collect();
+
+            if notes.is_empty() && items.is_empty() {
+                clean += 1;
+                continue;
+            }
+            noisy += 1;
+            println!("\n[{tag}] {} warning(s)", out.diagnostics.warnings());
+            for line in notes.lines() {
+                println!("    {line}");
+            }
+            // Per-annotation diagnostics are absent from the document render,
+            // and they are the ones that say which item to distrust.
+            for line in items {
+                println!("    {line}");
+            }
+        }
+    }
+
+    println!("\n{clean} fixture(s) reported nothing, {noisy} reported something");
+    println!("by prefix:");
+    for (kind, n) in &kinds {
+        println!("    {n:>4}  {kind}");
     }
 }
