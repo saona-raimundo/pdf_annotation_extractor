@@ -28,14 +28,20 @@ pdf_annotation_extractor paper.pdf              # Markdown
 pdf_annotation_extractor paper.pdf -f json      # JSON
 ```
 
-## Changing the layout
-
-### Output options
+## Output options
 
 `--show colour,kind,date` adds identifiers beside the page number.
 `--number global` or `--number per-page` numbers items, so a remark can be cited as "page 3, note 2".
 
-Anything finer (bullet, indent, headings, escaping) is set in `Style` in the source code, in `src/markdown.rs`.
+Anything finer (bullet, indent, headings, escaping) is set through `markdown::Style`, which the library exposes. The CLI uses the defaults.
+
+## Library
+
+```
+cargo add pdf_annotation_extractor --no-default-features
+```
+
+`default-features = false` drops `clap`, which only the binary uses.
 
 ## Similar tools
 
@@ -56,7 +62,7 @@ We test annotations inserted by hand using various PDF readers. Happy to include
 
 ## Known issues and limitations
 
-- Right-to-left scripts come out reversed. 
+- Right-to-left scripts come out reversed.
 
 Text is assembled by sorting glyphs left to right. 
 Moreover, there is no continuation of reading order by looking just at an annotation. Therefore, this is unsupported.

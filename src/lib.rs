@@ -14,8 +14,6 @@
 //!   * /ActualText is re-encoded through the font in character mode, which
 //!     corrupts every declared span. See `actual_text`.
 
-use std::io::{self, Write};
-
 use pdf_oxide::PdfDocument;
 use pdf_oxide::layout::TextChar;
 use serde::Serialize;
@@ -472,21 +470,6 @@ pub fn extract(bytes: Vec<u8>, opts: &Options) -> Result<Report, Error> {
         annotations: records,
         diagnostics: diags,
     })
-}
-
-/// Write the report to the writer, treating a closed pipe as success.
-///
-/// `println!` panics if stdout is gone, which is what happens under
-/// `tool paper.pdf | head`. It goes unnoticed on small reports because a
-/// single write below the 64 KiB pipe buffer completes before the reader
-/// exits; past that it aborts with exit 101 and a panic trace. Every other
-/// Unix filter exits quietly instead.
-pub fn write_to<W: Write>(mut out: W, text: &str) -> Result<(), Error> {
-    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(()),
-        Err(e) => Err(e.into()),
-    }
 }
 
 /// `/Annots` is in creation order, not reading order. Sort down the page, then

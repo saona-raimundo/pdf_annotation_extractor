@@ -4,13 +4,13 @@
 //! PDF lives in the library, so that the fixture harness and a browser build
 //! can reach it without going through a process.
 
-use std::io;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 
 use pdf_annotation_extractor::{
-    Descriptor, Error, GlyphSpace, Numbering, Options, Style, error, extract, markdown, write_to,
+    Descriptor, Error, GlyphSpace, Numbering, Options, Style, error, extract, markdown,
 };
 
 #[derive(Copy, Clone, PartialEq, ValueEnum)]
@@ -240,6 +240,25 @@ fn run() -> Result<Outcome, Error> {
     })
 }
 
+/// Write the report to the writer, treating a closed pipe as success.
+///
+/// Here rather than in the library: "a closed pipe means the reader has what
+/// it wanted" is a convention of Unix filters, not a fact about PDFs, and a
+/// library has no business holding an opinion about stdout.
+///
+/// `println!` panics if stdout is gone, which is what happens under
+/// `tool paper.pdf | head`. It goes unnoticed on small reports because a
+/// single write below the 64 KiB pipe buffer completes before the reader
+/// exits; past that it aborts with exit 101 and a panic trace. Every other
+/// Unix filter exits quietly instead.
+fn write_to<W: Write>(mut out: W, text: &str) -> Result<(), Error> {
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn write_out(text: &str) -> Result<(), Error> {
     write_to(io::stdout().lock(), text)
 }
@@ -248,6 +267,42 @@ fn write_out(text: &str) -> Result<(), Error> {
 mod tests {
     use super::*;
 
+    /// A writer that fails every write with a chosen error kind.
+    struct FailingWriter(io::ErrorKind);
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(self.0, "injected"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::Error::new(self.0, "injected"))
+        }
+    }
+
+    // -------------------------------------------------------- write_to
+    // Pins the broken-pipe branch. `println!` panics when stdout is gone, which
+    // is what `tool paper.pdf | head` does. It went unnoticed because a single
+    // write below the 64 KiB pipe buffer completes before the reader exits;
+    // measured, it aborts with exit 101 from about 70 KB up.
+
+    #[test]
+    fn writes_the_whole_report_to_the_sink() {
+        let mut sink: Vec<u8> = Vec::new();
+        assert!(write_to(&mut sink, "hello").is_ok());
+        assert_eq!(sink, b"hello");
+    }
+
+    #[test]
+    fn broken_pipe_is_not_an_error() {
+        // `| head` closing the pipe early is normal for a filter, so exit 0.
+        assert!(write_to(FailingWriter(io::ErrorKind::BrokenPipe), "x").is_ok());
+    }
+
+    #[test]
+    fn other_write_errors_still_propagate() {
+        // A full disk or a bad redirect must not be swallowed along with it.
+        assert!(write_to(FailingWriter(io::ErrorKind::PermissionDenied), "x").is_err());
+    }
     // ------------------------------------------------------------ Options
     // Pins the wiring between the CLI and `extract`. Every flag here has to reach
     // `Options` or it is parsed and discarded — which is not hypothetical: --show

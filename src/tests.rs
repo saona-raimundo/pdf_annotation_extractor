@@ -10,7 +10,6 @@
 //! functions taking one (`has_quads`) are left to the integration tests.
 
 use super::*;
-use std::io::{self, Write};
 
 // The functions under test now live in sibling modules, so `use super::*` on
 // its own only reaches the crate root. Kept as one file rather than split
@@ -64,18 +63,6 @@ fn rec(page: usize, kind: &str, covered: Option<&str>, comment: Option<&str>) ->
         rect: [0.0; 4],
         link: String::new(),
         diagnostics: Vec::new(),
-    }
-}
-
-/// A writer that fails every write with a chosen error kind.
-struct FailingWriter(io::ErrorKind);
-
-impl Write for FailingWriter {
-    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-        Err(io::Error::new(self.0, "injected"))
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Err(io::Error::new(self.0, "injected"))
     }
 }
 
@@ -960,31 +947,6 @@ fn sorts_by_page_then_down_then_across() {
         order,
         vec!["upper left", "upper right", "lower left", "second page"]
     );
-}
-
-// -------------------------------------------------------- write_to
-// Pins the broken-pipe branch. `println!` panics when stdout is gone, which
-// is what `tool paper.pdf | head` does. It went unnoticed because a single
-// write below the 64 KiB pipe buffer completes before the reader exits;
-// measured, it aborts with exit 101 from about 70 KB up.
-
-#[test]
-fn writes_the_whole_report_to_the_sink() {
-    let mut sink: Vec<u8> = Vec::new();
-    assert!(write_to(&mut sink, "hello").is_ok());
-    assert_eq!(sink, b"hello");
-}
-
-#[test]
-fn broken_pipe_is_not_an_error() {
-    // `| head` closing the pipe early is normal for a filter, so exit 0.
-    assert!(write_to(FailingWriter(io::ErrorKind::BrokenPipe), "x").is_ok());
-}
-
-#[test]
-fn other_write_errors_still_propagate() {
-    // A full disk or a bad redirect must not be swallowed along with it.
-    assert!(write_to(FailingWriter(io::ErrorKind::PermissionDenied), "x").is_err());
 }
 
 // -------------------------------------------------- repair, broken chain
