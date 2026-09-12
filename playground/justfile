@@ -1,0 +1,38 @@
+# Build, serve and watch
+#
+# ../src as well as src: the library is a path dependency, so a change there is
+# a change to this application and should reload the page too.
+serve:
+	trunk serve --watch src --watch ../src --open
+
+# Format source code
+format:
+	leptosfmt src/*.rs
+	cargo fmt
+
+# Build what CI publishes, into the repository's docs/ folder
+#
+# --public-url ./ is what makes the bundle work from a subdirectory such as
+# /pdf_annotation_extractor/ on GitHub Pages. Without it trunk writes absolute
+# paths and every asset 404s one level up. It replaces the string-rewriting
+# step the other playgrounds do after the build, which is also why this
+# justfile needs no nushell.
+build:
+	trunk build --release --public-url ./ --dist ../docs
+
+# What CI checks. clippy needs the wasm target: the application never compiles
+# for the host, and a lint that only fires under wasm32 would go unseen.
+check:
+	cargo fmt --check
+	cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings
+
+clean:
+	cargo clean
+	trunk clean
+	rm -rf ../docs
+
+# One-time setup on a fresh machine
+setup:
+	rustup target add wasm32-unknown-unknown
+	cargo install --locked trunk
+	cargo install --locked leptosfmt

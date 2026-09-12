@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <link data-trunk rel="copy-dir" href="./assets/" />
+        <meta charset="utf-8" />
+        <link rel="author" href="https://saona-raimundo.github.io/" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta
+            name="description"
+            content="Extract highlights and comments from an annotated PDF, in your browser."
+        />
+        <link rel="stylesheet" href="./assets/style.css" />
+        <title>PDF annotation extractor playground</title>
+
+        <!--
+            Sample documents, taken from the fixture corpus rather than copied in:
+            one paper annotated by three different readers is the thing no other
+            extractor's demo can show. Explicit copy-file entries, so that adding
+            a fixture family does not silently grow the bundle.
+        -->
+        <link
+            data-trunk
+            rel="copy-file"
+            href="../tests/basic/producers/base-firefox-153.0.4.pdf"
+            data-target-path="samples"
+        />
+        <link
+            data-trunk
+            rel="copy-file"
+            href="../tests/basic/producers/base-okular-26.04.3.pdf"
+            data-target-path="samples"
+        />
+        <link
+            data-trunk
+            rel="copy-file"
+            href="../tests/basic/producers/base-papers-50.2.pdf"
+            data-target-path="samples"
+        />
+    </head>
+    <body>
+        <noscript>
+            This page contains webassembly and javascript content, please enable
+            javascript in your browser.
+        </noscript>
+    </body>
+</html>

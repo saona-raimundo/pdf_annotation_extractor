@@ -1,0 +1,64 @@
+[package]
+name = "pdf_annotation_extractor_playground"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT OR Unlicense OR CC0-1.0 OR Apache-2.0"
+description = "Browser playground for pdf_annotation_extractor"
+
+# Its own workspace, deliberately.
+#
+# Folded into the parent as a workspace member, `cargo build`, `cargo clippy
+# --all-targets` and `cargo test` at the root would all pull in leptos and
+# wasm-bindgen, the root Cargo.lock would carry two hundred entries for a
+# five-dependency crate, and the MSRV job would start reporting the
+# playground's floor rather than the library's. Nested here, the root
+# toolchain never sees it and `cd playground` is the only way in.
+[workspace]
+
+[dependencies]
+# The point of the path dependency: this is the crate exactly as a downstream
+# user gets it, wasm target and all. `default-features = false` is what a
+# library consumer writes, and is what keeps clap out of the bundle — if the
+# library ever grows a hard dependency on it, the playground stops building.
+pdf_annotation_extractor = { path = "..", default-features = false }
+
+leptos = { version = "0.8", features = ["csr"] }
+serde_json = "1"
+
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+# Leptos enables most of these already; listed so a change upstream cannot
+# silently remove one out from under us.
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "Blob",
+    "BlobPropertyBag",
+    "Clipboard",
+    "DataTransfer",
+    "Document",
+    "DragEvent",
+    "Element",
+    "Event",
+    "EventTarget",
+    "File",
+    "FileList",
+    "HtmlAnchorElement",
+    "HtmlInputElement",
+    "Navigator",
+    "Response",
+    "Url",
+    "Window",
+]
+
+# Size matters more than compile time for something served over the wire.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

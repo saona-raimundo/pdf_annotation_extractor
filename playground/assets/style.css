@@ -1,0 +1,209 @@
+:root {
+	--fg: #1b1b1b;
+	--bg: #ffffff;
+	--muted: #6a6a6a;
+	--line: #d8d8d8;
+	--accent: #2f5d9e;
+	--warn: #9a3b1f;
+	--note: #6a5200;
+	--code-bg: #f6f6f4;
+	font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--fg: #e8e8e8;
+		--bg: #16171a;
+		--muted: #9a9a9a;
+		--line: #33363c;
+		--accent: #8ab4f8;
+		--warn: #f08a6a;
+		--note: #d9bf6a;
+		--code-bg: #1e2025;
+	}
+}
+
+body {
+	margin: 0 auto;
+	padding: 1.5rem 1rem 4rem;
+	max-width: 56rem;
+	color: var(--fg);
+	background: var(--bg);
+	line-height: 1.5;
+}
+
+h1 {
+	font-size: 1.5rem;
+	margin: 0 0 0.25rem;
+}
+
+h2 {
+	font-size: 1.15rem;
+	margin: 2.5rem 0 0.5rem;
+}
+
+h3 {
+	font-size: 1rem;
+	margin: 0 0 0.5rem;
+}
+
+.tagline {
+	color: var(--muted);
+	margin: 0 0 1.5rem;
+}
+
+.tagline a {
+	color: var(--accent);
+}
+
+/* Drop zone */
+
+.drop {
+	border: 2px dashed var(--line);
+	border-radius: 0.5rem;
+	padding: 2.5rem 1rem;
+	text-align: center;
+	transition: border-color 0.15s, background 0.15s;
+}
+
+.drop.over {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.drop p {
+	margin: 0.25rem 0;
+}
+
+.samples {
+	margin-top: 0.75rem;
+	color: var(--muted);
+	font-size: 0.9rem;
+}
+
+.privacy {
+	margin-top: 0.5rem;
+	color: var(--muted);
+	font-size: 0.85rem;
+}
+
+button,
+select,
+input[type="number"] {
+	font: inherit;
+	color: inherit;
+	background: var(--code-bg);
+	border: 1px solid var(--line);
+	border-radius: 0.3rem;
+	padding: 0.2rem 0.6rem;
+	cursor: pointer;
+}
+
+button:hover {
+	border-color: var(--accent);
+}
+
+/* Controls */
+
+.controls {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem 1.25rem;
+	align-items: center;
+	margin: 1.25rem 0 0.75rem;
+	padding-bottom: 0.75rem;
+	border-bottom: 1px solid var(--line);
+}
+
+.controls label {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	cursor: pointer;
+}
+
+details.advanced {
+	margin: 0 0 1rem;
+	color: var(--muted);
+}
+
+details.advanced summary {
+	cursor: pointer;
+}
+
+details.advanced .controls {
+	border-bottom: none;
+	margin-top: 0.5rem;
+}
+
+/* Output */
+
+.tabs {
+	display: flex;
+	gap: 0.25rem;
+	margin-bottom: -1px;
+}
+
+.tabs button {
+	border-radius: 0.3rem 0.3rem 0 0;
+	background: transparent;
+}
+
+.tabs button.active {
+	background: var(--code-bg);
+	border-bottom-color: var(--code-bg);
+	font-weight: 600;
+}
+
+pre {
+	background: var(--code-bg);
+	border: 1px solid var(--line);
+	border-radius: 0 0.3rem 0.3rem 0.3rem;
+	padding: 1rem;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+	margin: 0;
+	max-height: 32rem;
+}
+
+.diag-warning {
+	color: var(--warn);
+}
+
+.diag-note {
+	color: var(--note);
+}
+
+.status {
+	margin: 1rem 0;
+	color: var(--muted);
+}
+
+.error {
+	border-left: 3px solid var(--warn);
+	padding-left: 0.75rem;
+	color: var(--warn);
+}
+
+footer {
+	margin-top: 3rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+	color: var(--muted);
+	font-size: 0.9rem;
+}
+
+footer a {
+	color: var(--accent);
+}
+
+footer p {
+	margin: 0.35rem 0;
+}
+
+address {
+	font-style: normal;
+	margin-top: 0.35rem;
+}
