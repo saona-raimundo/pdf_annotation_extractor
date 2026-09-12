@@ -1,0 +1,55 @@
+# Build the playground and publish it to GitHub Pages.
+#
+# The bundle is uploaded as an artifact rather than committed to a docs/
+# folder: the WebAssembly blob is around a megabyte, changes with every
+# dependency bump, and would otherwise sit in the history of a crate whose
+# selling point is that it has five dependencies. `just build` writes to the
+# same ../docs path locally, so what is served is what was tested.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; do not cancel one in flight, a half-published
+# Pages site is worse than a stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: playground
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      - name: Build
+        working-directory: playground
+        run: trunk build --release --public-url ./ --dist ../docs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

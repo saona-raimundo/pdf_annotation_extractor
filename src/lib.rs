@@ -14,6 +14,8 @@
 //!   * /ActualText is re-encoded through the font in character mode, which
 //!     corrupts every declared span. See `actual_text`.
 
+#![forbid(unsafe_code)]
+
 use pdf_oxide::PdfDocument;
 use pdf_oxide::layout::TextChar;
 use serde::Serialize;

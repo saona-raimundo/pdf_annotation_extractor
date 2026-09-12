@@ -1,1 +1,4 @@
 /target
+# Build output of playground/, written there so GitHub Pages can serve it.
+# Published by CI from the artifact; never committed.
+/docs

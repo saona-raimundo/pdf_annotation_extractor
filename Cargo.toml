@@ -11,6 +11,11 @@ documentation = "https://docs.rs/pdf_annotation_extractor"
 description = "Extract highlights and comments from an annotated PDF"
 keywords = ["pdf", "annotations", "highlights", "markdown", "review"]
 categories = ["command-line-utilities", "text-processing"]
+# The browser playground is a separate crate that depends on this one by path.
+# It is a consumer test, not part of the package: shipping it would put leptos
+# and a stylesheet in the .crate tarball and make `cargo package` walk a nested
+# workspace.
+exclude = ["playground"]
 
 [dependencies]
 # Pinned, not a caret range. `actual_text::repair` depends on the *shape* of a

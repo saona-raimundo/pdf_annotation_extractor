@@ -4,6 +4,8 @@
 //! PDF lives in the library, so that the fixture harness and a browser build
 //! can reach it without going through a process.
 
+#![forbid(unsafe_code)]
+
 use std::io::{self, Write};
 use std::path::PathBuf;
 

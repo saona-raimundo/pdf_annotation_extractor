@@ -8,6 +8,9 @@ Also, we try to adhere to the [Conventional Commits specification](https://www.c
 
 ## Unreleased
 
+- A browser playground under `playground/`, published to GitHub Pages. It doubles as the crate's only consumer test: a separate crate depending on this one by path with `default-features = false`, compiled to `wasm32-unknown-unknown`.
+- Added `#![forbid(unsafe_code)]`
+
 ## [0.2.1]
 
 - Added iterator method over Diagnostics.

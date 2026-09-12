@@ -2,6 +2,8 @@
 
 Extracts annotations (highlights, comments, notes) from a PDF, outputs Markdown or JSON. Intended for sharing feedback in plain text instead of the annotated PDF.
 
+**[Try it in your browser](https://saona-raimundo.github.io/pdf_annotation_extractor/)** — drop a PDF in and read the report. Nothing is uploaded; it runs as WebAssembly on your machine. Source in [`playground/`](playground/).
+
 **Main problem**
 Text markup in PDFs records *where* a highlight is, not the text underneath. It needs to be retrieved.
 

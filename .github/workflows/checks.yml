@@ -44,3 +44,25 @@ jobs:
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
       - run: cargo check --all-targets
+
+  # The playground is a consumer of this crate, compiled to wasm32 with
+  # `default-features = false`. It catches what the fixture suite cannot: a
+  # library that quietly needs clap, a dependency that will not build for the
+  # browser, a type a caller needs that was never made public. Checked on every
+  # PR; only built and published from main, in pages.yml.
+  playground:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: playground
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: playground
+      - run: cargo fmt --check
+      - run: cargo clippy --target wasm32-unknown-unknown --all-targets -- -D warnings
