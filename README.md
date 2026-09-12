@@ -1,5 +1,10 @@
 # pdf_annotation_extractor
 
+[![Download](https://img.shields.io/crates/d/pdf_annotation_extractor)](https://crates.io/crates/pdf_annotation_extractor)
+[![License](https://img.shields.io/crates/l/pdf_annotation_extractor)](https://github.com/saona-raimundo/pdf_annotation_extractor)
+[![Docs](https://docs.rs/pdf_annotation_extractor/badge.svg)](https://docs.rs/pdf_annotation_extractor/)
+[![Crate](https://img.shields.io/crates/v/pdf_annotation_extractor.svg)](https://crates.io/crates/pdf_annotation_extractor)
+
 Extracts annotations (highlights, comments, notes) from a PDF, outputs Markdown or JSON. Intended for sharing feedback in plain text instead of the annotated PDF.
 
 **[Try it in your browser](https://saona-raimundo.github.io/pdf_annotation_extractor/)** — drop a PDF in and read the report. Nothing is uploaded; it runs as WebAssembly on your machine. Source in [`playground/`](playground/).
