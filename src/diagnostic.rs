@@ -359,6 +359,11 @@ impl Diagnostics {
         }
         out
     }
+
+    /// Create an iterator over the underlying diagnostics.
+    pub fn iter(&self) -> impl Iterator<Item = &Diagnostic> {
+        self.items.iter()
+    }
 }
 
 #[cfg(test)]

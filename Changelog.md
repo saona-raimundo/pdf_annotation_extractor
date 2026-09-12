@@ -8,6 +8,11 @@ Also, we try to adhere to the [Conventional Commits specification](https://www.c
 
 ## Unreleased
 
+## [0.2.1]
+
+- Added iterator method over Diagnostics.
+- Lightened the dependency on jiff by turning off default features.
+
 ## [0.2.0]
 
 - A library API. `extract(bytes, &Options) -> Result<Report, Error>`
